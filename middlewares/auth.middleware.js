@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 
+import User from "../models/user.model.js";
 import AppError from "../utils/AppError.js";
 import asyncHandler from "./asyncHandler.middleware.js";
 
@@ -42,9 +43,13 @@ export const authorizeRoles = (...roles) =>
 // Middleware to check if user has an active subscription or not
 export const authorizeSubscribers = asyncHandler(async (req, _res, next) => {
   // If user is not admin or does not have an active subscription then error else pass
-  const user = await UserActivation.findById(req.user.id);
-  console.log(user);
-  if (user.role !== "ADMIN" && req.user.subscription.status !== "active") {
+  const user = await User.findById(req.user.id);
+
+  if (!user) {
+    return next(new AppError("User does not exist", 404));
+  }
+
+  if (user.role !== "ADMIN" && user.subscription?.status !== "active") {
     return next(new AppError("Please subscribe to access this route.", 403));
   }
 

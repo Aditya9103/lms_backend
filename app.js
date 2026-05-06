@@ -8,6 +8,13 @@ import errorMiddleware from './middlewares/error.middleware.js';
 
 const app = express();
 
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_URL?.replace(/\/$/, ''),
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+
 // Middlewares
 // Built-In
 app.use(express.json());
@@ -15,7 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 // Third-Party
 app.use(
   cors({
-    origin: [process.env.FRONTEND_URL],
+    origin: allowedOrigins,
     credentials: true,
   })
 );
