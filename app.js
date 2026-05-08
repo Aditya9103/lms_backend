@@ -41,18 +41,26 @@ import userRoutes from './routes/user.routes.js';
 import courseRoutes from './routes/course.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import miscRoutes from './routes/miscellaneous.routes.js';
+import discussionRoutes from './routes/discussion.routes.js';
+import blogRoutes from './routes/blog.routes.js';
 
+// THE ROUTE MAP: This tells the server where to go when a user clicks a link.
+// For example: if you go to '/api/v1/user', we send you to the 'userRoutes' section.
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/courses', courseRoutes);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/discussions', discussionRoutes);
+app.use('/api/v1/blogs', blogRoutes);
 app.use('/api/v1', miscRoutes);
 
-// Default catch all route - 404
+// THE CATCH-ALL: If a user types a wrong address (like '/api/v1/wrong'),
+// we send them this 'Not Found' message.
 app.all('*', (_req, res) => {
   res.status(404).send('OOPS!!! 404 Page Not Found');
 });
 
-// Custom error handling middleware
+// THE EMERGENCY BRAKE: This is our global error handler.
+// If any of the code above crashes, this middleware catches it and sends a clean message.
 app.use(errorMiddleware);
 
 export default app;

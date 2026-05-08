@@ -48,6 +48,29 @@ const userSchema = new Schema(
     },
     forgotPasswordToken: String,
     forgotPasswordExpiry: Date,
+    progress: [
+      {
+        courseId: {
+          type: Schema.Types.ObjectId,
+          ref: 'Course',
+        },
+        completedLectures: [
+          {
+            type: Schema.Types.ObjectId,
+          },
+        ],
+      },
+    ],
+    streak: {
+      count: {
+        type: Number,
+        default: 0,
+      },
+      lastActivity: {
+        type: Date,
+        default: Date.now,
+      },
+    },
   },
   {
     timestamps: true,

@@ -178,8 +178,44 @@ export const logoutUser = asyncHandler(async (_req, res, _next) => {
  * @ACCESS Private(Logged in users only)
  */
 export const getLoggedInUserDetails = asyncHandler(async (req, res, _next) => {
-  // Finding the user using the id from modified req object
   const user = await User.findById(req.user.id);
+
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  // LOGIC: Learning Streak System
+  // This part of the code checks if you've been consistent with your learning.
+  const now = new Date();
+  const lastActivity = user.streak.lastActivity ? new Date(user.streak.lastActivity) : null;
+
+  if (lastActivity) {
+      // We calculate how much time has passed since your last login.
+      // We convert the 'milliseconds' from the computer into 'days'.
+      const diffTime = Math.abs(now - lastActivity);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+          // SUCCESS: You logged in exactly one day after your last visit!
+          // We increase your streak count by 1.
+          user.streak.count += 1;
+          user.streak.lastActivity = now;
+      } else if (diffDays > 1) {
+          // OOPS: You missed a day or more.
+          // Your streak resets to 1 (starting fresh today).
+          user.streak.count = 1;
+          user.streak.lastActivity = now;
+      }
+      // If diffDays is 0, it means you logged in again on the same day. 
+      // We don't increase the streak, but we keep your progress.
+  } else {
+      // FIRST TIME: This is your very first login activity.
+      // We start your streak at 1.
+      user.streak.count = 1;
+      user.streak.lastActivity = now;
+  }
+
+  await user.save(); // Save your new streak status to the database.
 
   res.status(200).json({
     success: true,
@@ -414,5 +450,53 @@ export const updateUser = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: 'User details updated successfully',
+  });
+});
+
+/**
+ * @UPDATE_COURSE_PROGRESS
+ * @ROUTE @POST {{URL}}/api/v1/user/progress/:courseId/:lectureId
+ * @ACCESS Private (Logged in user only)
+ */
+export const updateCourseProgress = asyncHandler(async (req, res, next) => {
+  const { courseId, lectureId } = req.params;
+  const { id } = req.user;
+
+  const user = await User.findById(id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Find if course progress entry already exists
+  const progressIndex = user.progress.findIndex(
+    (p) => p.courseId.toString() === courseId
+  );
+
+  if (progressIndex !== -1) {
+    // If course exists, check if lecture is already completed
+    const lectureIndex = user.progress[progressIndex].completedLectures.indexOf(lectureId);
+
+    if (lectureIndex !== -1) {
+      // Toggle off: Remove lecture from completed
+      user.progress[progressIndex].completedLectures.splice(lectureIndex, 1);
+    } else {
+      // Toggle on: Add lecture to completed
+      user.progress[progressIndex].completedLectures.push(lectureId);
+    }
+  } else {
+    // If course progress doesn't exist, create it
+    user.progress.push({
+      courseId,
+      completedLectures: [lectureId],
+    });
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Progress updated successfully',
+    progress: user.progress,
   });
 });
