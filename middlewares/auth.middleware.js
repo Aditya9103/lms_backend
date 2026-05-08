@@ -8,6 +8,8 @@ export const isLoggedIn = asyncHandler(async (req, _res, next) => {
   // extracting token from the cookies
   const { token } = req.cookies;
 
+  console.log("Cookies received:", req.cookies);
+
   // If no token send unauthorized message
   if (!token) {
     return next(new AppError("Unauthorized, please login to continue", 401));
@@ -27,6 +29,7 @@ export const isLoggedIn = asyncHandler(async (req, _res, next) => {
   }
 
 });
+
 
 // Middleware to check if user is admin or not
 export const authorizeRoles = (...roles) =>

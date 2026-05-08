@@ -10,11 +10,12 @@ import User from '../models/user.model.js';
 import sendEmail from '../utils/sendEmail.js';
 
 const cookieOptions = {
-  secure: process.env.NODE_ENV === 'production' ? true : false,
+  secure: true,
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   httpOnly: true,
   sameSite: 'none',
 };
+
 
 
 /**
@@ -131,6 +132,8 @@ export const loginUser = asyncHandler(async (req, res, next) => {
 
   // Generating a JWT token
   const token = await user.generateJWTToken();
+  console.log("Generated Token:", token);
+
 
   // Setting the password to undefined so it does not get sent in the response
   user.password = undefined;
@@ -154,11 +157,12 @@ export const loginUser = asyncHandler(async (req, res, next) => {
 export const logoutUser = asyncHandler(async (_req, res, _next) => {
   // Setting the cookie value to null
   res.cookie('token', null, {
-    secure: process.env.NODE_ENV === 'production' ? true : false,
+    secure: true,
     maxAge: 0,
     httpOnly: true,
     sameSite: 'none',
   });
+
 
 
   // Sending the response
