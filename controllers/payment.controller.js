@@ -230,12 +230,13 @@ export const allPayments = asyncHandler(async (req, res, _next) => {
     December: 0,
   };
 
-  const monthlyWisePayments = allPayments.items.map((payment) => {
+  const monthlyWisePayments = (allPayments?.items || []).map((payment) => {
     // We are using payment.start_at which is in unix time, so we are converting it to Human readable format using Date()
-    const monthsInNumbers = new Date(payment.start_at * 1000);
+    const monthsInNumbers = new Date((payment?.start_at || payment?.created_at || Date.now() / 1000) * 1000);
 
     return monthNames[monthsInNumbers.getMonth()];
   });
+
 
   monthlyWisePayments.map((month) => {
     Object.keys(finalMonths).forEach((objMonth) => {

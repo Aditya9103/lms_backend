@@ -13,7 +13,9 @@ const cookieOptions = {
   secure: process.env.NODE_ENV === 'production' ? true : false,
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   httpOnly: true,
+  sameSite: 'none',
 };
+
 
 /**
  * @REGISTER
@@ -155,7 +157,9 @@ export const logoutUser = asyncHandler(async (_req, res, _next) => {
     secure: process.env.NODE_ENV === 'production' ? true : false,
     maxAge: 0,
     httpOnly: true,
+    sameSite: 'none',
   });
+
 
   // Sending the response
   res.status(200).json({
