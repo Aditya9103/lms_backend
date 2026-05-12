@@ -43,6 +43,8 @@ import paymentRoutes from './routes/payment.routes.js';
 import miscRoutes from './routes/miscellaneous.routes.js';
 import discussionRoutes from './routes/discussion.routes.js';
 import blogRoutes from './routes/blog.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
+import interactionRoutes from './routes/interaction.routes.js';
 
 // THE ROUTE MAP: This tells the server where to go when a user clicks a link.
 // For example: if you go to '/api/v1/user', we send you to the 'userRoutes' section.
@@ -51,6 +53,8 @@ app.use('/api/v1/courses', courseRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/discussions', discussionRoutes);
 app.use('/api/v1/blogs', blogRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/interaction', interactionRoutes);
 app.use('/api/v1', miscRoutes);
 
 // THE CATCH-ALL: If a user types a wrong address (like '/api/v1/wrong'),

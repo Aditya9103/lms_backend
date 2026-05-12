@@ -18,6 +18,50 @@ const courseSchema = new Schema(
       type: String,
       required: [true, 'Category is required'],
     },
+    sections: [
+      {
+        title: { type: String, required: true },
+        lectures: [
+          {
+            title: String,
+            description: String,
+            lecture: {
+              public_id: { type: String, required: true },
+              secure_url: { type: String, required: true },
+            },
+            duration: Number, // in seconds
+            inVideoQuizzes: [
+              {
+                timestamp: { type: Number, required: true },
+                question: { type: String, required: true },
+                options: [String],
+                answer: Number, // Index of correct option
+              },
+            ],
+          },
+        ],
+        quizzes: [
+          {
+            title: String,
+            questions: [
+              {
+                question: String,
+                options: [String],
+                answer: Number,
+              },
+            ],
+            dueDate: Date,
+          },
+        ],
+        assignments: [
+          {
+            title: String,
+            description: String,
+            dueDate: Date,
+          },
+        ],
+      },
+    ],
     lectures: [
       {
         title: String,
@@ -32,6 +76,14 @@ const courseSchema = new Schema(
             required: true,
           },
         },
+        inVideoQuizzes: [
+          {
+            timestamp: { type: Number, required: true },
+            question: { type: String, required: true },
+            options: [String],
+            answer: Number,
+          },
+        ],
       },
     ],
     thumbnail: {

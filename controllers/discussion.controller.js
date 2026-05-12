@@ -4,7 +4,7 @@ import AppError from "../utils/AppError.js";
 import User from "../models/user.model.js";
 
 export const addQuestion = asyncHandler(async (req, res, next) => {
-    const { courseId, lectureId, question } = req.body;
+    const { courseId, lectureId, question, timestamp } = req.body;
     const userId = req.user.id;
 
     if (!courseId || !lectureId || !question) {
@@ -19,7 +19,8 @@ export const addQuestion = asyncHandler(async (req, res, next) => {
         userId,
         userName: user.fullName,
         userAvatar: user.avatar?.secure_url,
-        question
+        question,
+        timestamp
     });
 
     res.status(201).json({

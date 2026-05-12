@@ -59,8 +59,33 @@ const userSchema = new Schema(
             type: Schema.Types.ObjectId,
           },
         ],
+        completedQuizzes: [
+          {
+            quizId: Schema.Types.ObjectId,
+            score: Number,
+            totalQuestions: Number,
+            completedAt: { type: Date, default: Date.now },
+          },
+        ],
+        completedAssignments: [
+          {
+            assignmentId: Schema.Types.ObjectId,
+            status: { type: String, enum: ['SUBMITTED', 'GRADED'], default: 'SUBMITTED' },
+            score: Number,
+            submittedAt: { type: Date, default: Date.now },
+          },
+        ],
       },
     ],
+    recentlyWatched: [
+      {
+        courseId: { type: Schema.Types.ObjectId, ref: 'Course' },
+        lectureId: { type: Schema.Types.ObjectId },
+        timestamp: { type: Number, default: 0 },
+        lastAccessed: { type: Date, default: Date.now },
+      },
+    ],
+    weakTopics: [String],
     streak: {
       count: {
         type: Number,
@@ -71,6 +96,25 @@ const userSchema = new Schema(
         default: Date.now,
       },
     },
+    bookmarks: [
+      {
+        courseId: { type: Schema.Types.ObjectId, ref: 'Course' },
+        lectureId: String,
+        timestamp: Number,
+        label: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    notes: [
+      {
+        courseId: { type: Schema.Types.ObjectId, ref: 'Course' },
+        lectureId: String,
+        lectureTitle: String,
+        timestamp: Number,
+        text: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   {
     timestamps: true,

@@ -22,6 +22,10 @@ const discussionSchema = new Schema({
         required: true,
         trim: true
     },
+    timestamp: {
+        type: Number, // Seconds into the video
+        default: null
+    },
     replies: [
         {
             userId: {

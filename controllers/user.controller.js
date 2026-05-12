@@ -500,3 +500,172 @@ export const updateCourseProgress = asyncHandler(async (req, res, next) => {
     progress: user.progress,
   });
 });
+
+/**
+ * @UPDATE_VIDEO_PROGRESS
+ * @ROUTE @POST {{URL}}/api/v1/user/video-progress
+ * @ACCESS Private (Logged in user only)
+ */
+export const updateVideoProgress = asyncHandler(async (req, res, next) => {
+  const { courseId, lectureId, timestamp } = req.body;
+  const { id } = req.user;
+
+  if (!courseId || !lectureId) {
+    return next(new AppError('Course ID and Lecture ID are required', 400));
+  }
+
+  const user = await User.findById(id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Update recentlyWatched
+  // Remove if already exists to move to top
+  const existingIndex = user.recentlyWatched.findIndex(
+    (item) => item.courseId.toString() === courseId && item.lectureId.toString() === lectureId
+  );
+
+  if (existingIndex !== -1) {
+    user.recentlyWatched.splice(existingIndex, 1);
+  }
+
+  // Add to front of array
+  user.recentlyWatched.unshift({
+    courseId,
+    lectureId,
+    timestamp,
+    lastAccessed: new Date(),
+  });
+
+  // Limit to last 10
+  if (user.recentlyWatched.length > 10) {
+    user.recentlyWatched.pop();
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Video progress saved',
+    recentlyWatched: user.recentlyWatched,
+  });
+});
+
+/**
+ * @SUBMIT_QUIZ
+ * @ROUTE @POST {{URL}}/api/v1/user/quiz/submit
+ * @ACCESS Private (Logged in user only)
+ */
+export const submitQuiz = asyncHandler(async (req, res, next) => {
+  const { courseId, quizId, score, totalQuestions, topic } = req.body;
+  const { id } = req.user;
+
+  if (!courseId || !quizId) {
+    return next(new AppError('Course ID and Quiz ID are required', 400));
+  }
+
+  const user = await User.findById(id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  const progressIndex = user.progress.findIndex(
+    (p) => p.courseId.toString() === courseId
+  );
+
+  if (progressIndex !== -1) {
+    const quizIndex = user.progress[progressIndex].completedQuizzes.findIndex(
+      (q) => q.quizId.toString() === quizId
+    );
+
+    if (quizIndex === -1) {
+      user.progress[progressIndex].completedQuizzes.push({
+        quizId,
+        score,
+        totalQuestions,
+      });
+    } else {
+      // Update existing score if higher
+      if (score > user.progress[progressIndex].completedQuizzes[quizIndex].score) {
+        user.progress[progressIndex].completedQuizzes[quizIndex].score = score;
+      }
+    }
+  } else {
+    user.progress.push({
+      courseId,
+      completedQuizzes: [{ quizId, score, totalQuestions }],
+    });
+  }
+
+  // LOGIC: Weak Topics Update
+  // If score is less than 70%, we mark this as a weak topic to help focus areas.
+  if (topic && (score / totalQuestions) < 0.7) {
+    if (!user.weakTopics.includes(topic)) {
+      user.weakTopics.push(topic);
+    }
+  } else if (topic) {
+    // If improved, remove from weak topics
+    user.weakTopics = user.weakTopics.filter(t => t !== topic);
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Quiz submitted successfully',
+    progress: user.progress,
+    weakTopics: user.weakTopics
+  });
+});
+
+/**
+ * @SUBMIT_ASSIGNMENT
+ * @ROUTE @POST {{URL}}/api/v1/user/assignment/submit
+ * @ACCESS Private (Logged in user only)
+ */
+export const submitAssignment = asyncHandler(async (req, res, next) => {
+  const { courseId, assignmentId } = req.body;
+  const { id } = req.user;
+
+  if (!courseId || !assignmentId) {
+    return next(new AppError('Course ID and Assignment ID are required', 400));
+  }
+
+  const user = await User.findById(id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  const progressIndex = user.progress.findIndex(
+    (p) => p.courseId.toString() === courseId
+  );
+
+  if (progressIndex !== -1) {
+    const assignmentIndex = user.progress[progressIndex].completedAssignments.findIndex(
+      (a) => a.assignmentId.toString() === assignmentId
+    );
+
+    if (assignmentIndex === -1) {
+      user.progress[progressIndex].completedAssignments.push({
+        assignmentId,
+        status: 'SUBMITTED',
+      });
+    }
+  } else {
+    user.progress.push({
+      courseId,
+      completedAssignments: [{ assignmentId, status: 'SUBMITTED' }],
+    });
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Assignment submitted successfully',
+    progress: user.progress
+  });
+});

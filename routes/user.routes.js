@@ -9,6 +9,9 @@ import {
   resetPassword,
   updateUser,
   updateCourseProgress,
+  updateVideoProgress,
+  submitQuiz,
+  submitAssignment,
 } from "../controllers/user.controller.js";
 import { isLoggedIn } from "../middlewares/auth.middleware.js";
 import upload from "../middlewares/multer.middleware.js";
@@ -24,5 +27,8 @@ router.post("/reset/:resetToken", resetPassword);
 router.post("/change-password", isLoggedIn, changePassword);
 router.put("/update/:id", isLoggedIn, upload.single("avatar"), updateUser);
 router.post("/progress/:courseId/:lectureId", isLoggedIn, updateCourseProgress);
+router.post("/video-progress", isLoggedIn, updateVideoProgress);
+router.post("/quiz/submit", isLoggedIn, submitQuiz);
+router.post("/assignment/submit", isLoggedIn, submitAssignment);
 
 export default router;
