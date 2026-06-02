@@ -128,3 +128,114 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+# ==========================================
+# 1. Environment Secrets & Credentials
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+certs/
+secrets.json
+
+# ==========================================
+# 2. Package Managers & Dependencies
+# ==========================================
+# Node.js
+node_modules/
+jspm_packages/
+bower_components/
+.npm
+.yarn/
+.pnp.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# PHP / Composer
+vendor/
+
+# Ruby
+.bundle/
+vendor/bundle/
+
+# ==========================================
+# 3. Build Outputs & Bundlers
+# ==========================================
+dist/
+build/
+out/
+target/
+.next/
+.nuxt/
+.docusaurus/
+*.gem
+*.egg-info/
+.serverless/
+
+# ==========================================
+# 4. Logs and Databases
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.sqlite
+*.db
+
+# ==========================================
+# 5. Operating System Junk
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.trash
+
+# ==========================================
+# 6. IDEs & Editors
+# ==========================================
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+
+# IntelliJ / WebStorm / PyCharm
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# System Editors
+.swp
+.swo
+*~
+.netrwhist

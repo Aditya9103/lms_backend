@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 
 import cloudinary from 'cloudinary';
+import { OAuth2Client } from 'google-auth-library';
 
 import asyncHandler from '../middlewares/asyncHandler.middleware.js';
 import AppError from '../utils/AppError.js';
@@ -129,6 +130,15 @@ export const loginUser = asyncHandler(async (req, res, next) => {
       new AppError('Email or Password do not match or user does not exist', 401)
     );
   }
+
+  if (!user.isVerified) {
+    return next(
+      new AppError('Please verify your email via OTP before logging in', 403)
+    );
+  }
+
+  user.lastLoginDate = Date.now();
+  await user.save();
 
   // Generating a JWT token
   const token = await user.generateJWTToken();
@@ -668,4 +678,287 @@ export const submitAssignment = asyncHandler(async (req, res, next) => {
     message: 'Assignment submitted successfully',
     progress: user.progress
   });
+});
+
+/**
+ * @GOOGLE_AUTH
+ * @ROUTE @POST {{URL}}/api/v1/user/google-auth
+ * @ACCESS Public
+ */
+export const googleAuth = asyncHandler(async (req, res, next) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return next(new AppError('Google credential is required', 400));
+  }
+
+  const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+  try {
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const { email, name, picture, sub } = ticket.getPayload();
+
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // Link account if it's not linked yet
+      if (!user.googleId) {
+        user.googleId = sub;
+        user.authProvider = 'google';
+        user.isVerified = true;
+      }
+      user.lastLoginDate = Date.now();
+      await user.save();
+    } else {
+      // Create a new user
+      user = await User.create({
+        fullName: name,
+        email,
+        avatar: {
+          public_id: email,
+          secure_url: picture,
+        },
+        googleId: sub,
+        authProvider: 'google',
+        isVerified: true,
+        lastLoginDate: Date.now(),
+      });
+    }
+
+    const token = await user.generateJWTToken();
+    user.password = undefined;
+
+    res.cookie('token', token, cookieOptions);
+
+    res.status(200).json({
+      success: true,
+      message: 'Google Authentication successful',
+      user,
+    });
+  } catch (error) {
+    return next(new AppError('Invalid Google Token', 401));
+  }
+});
+
+/**
+ * @OTP_SIGNUP
+ * @ROUTE @POST {{URL}}/api/v1/user/otp-signup
+ * @ACCESS Public
+ */
+export const otpSignup = asyncHandler(async (req, res, next) => {
+  const { fullName, email, password } = req.body;
+
+  if (!fullName || !email) {
+    return next(new AppError('Full Name and Email are required', 400));
+  }
+
+  let user = await User.findOne({ email });
+
+  if (user && user.isVerified) {
+    return next(new AppError('Email already registered and verified', 409));
+  }
+
+  if (!user) {
+    user = await User.create({
+      fullName,
+      email,
+      password: password || undefined,
+      authProvider: 'otp',
+      avatar: {
+        public_id: email,
+        secure_url: 'https://res.cloudinary.com/dnad8ehxf',
+      },
+    });
+  } else {
+    user.fullName = fullName;
+    if (password) user.password = password;
+  }
+
+  if (req.file) {
+    try {
+      const result = await cloudinary.v2.uploader.upload(req.file.path, {
+        folder: 'lms', width: 250, height: 250, gravity: 'faces', crop: 'fill',
+      });
+      if (result) {
+        user.avatar.public_id = result.public_id;
+        user.avatar.secure_url = result.secure_url;
+        fs.rm(`uploads/${req.file.filename}`);
+      }
+    } catch (error) {}
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+  user.otp = hashedOtp;
+  user.otpExpiresAt = Date.now() + 10 * 60 * 1000;
+  user.otpType = 'signup';
+  user.lastOtpSentAt = Date.now();
+  user.otpResendCount = 0;
+  await user.save();
+
+  const message = `
+    <h2>Verify Your Account</h2>
+    <p>Your verification code is: <strong>${otp}</strong></p>
+    <p>This code will expire in 10 minutes.</p>
+  `;
+
+  try {
+    await sendEmail(email, 'Verify Your Account', message);
+    res.status(200).json({ success: true, message: 'OTP sent to email' });
+  } catch (error) {
+    user.otp = undefined;
+    user.otpExpiresAt = undefined;
+    await user.save();
+    return next(new AppError('Email could not be sent', 500));
+  }
+});
+
+/**
+ * @VERIFY_SIGNUP_OTP
+ * @ROUTE @POST {{URL}}/api/v1/user/verify-signup-otp
+ * @ACCESS Public
+ */
+export const verifySignupOtp = asyncHandler(async (req, res, next) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
+
+  const user = await User.findOne({ email }).select('+otp');
+  if (!user || user.isVerified) return next(new AppError('User not found or already verified', 400));
+
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+  if (user.otp !== hashedOtp) return next(new AppError('Invalid OTP', 400));
+  if (user.otpExpiresAt < Date.now()) return next(new AppError('OTP expired', 400));
+
+  user.isVerified = true;
+  user.otp = undefined;
+  user.otpExpiresAt = undefined;
+  user.otpType = undefined;
+  user.lastLoginDate = Date.now();
+  await user.save();
+
+  const token = await user.generateJWTToken();
+  user.password = undefined;
+
+  res.cookie('token', token, cookieOptions);
+  res.status(200).json({ success: true, message: 'Account verified successfully', user });
+});
+
+/**
+ * @OTP_LOGIN
+ * @ROUTE @POST {{URL}}/api/v1/user/otp-login
+ * @ACCESS Public
+ */
+export const otpLogin = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+  if (!email) return next(new AppError('Email is required', 400));
+
+  const user = await User.findOne({ email });
+  if (!user || !user.isVerified) return next(new AppError('User not found or not verified', 404));
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+  user.otp = hashedOtp;
+  user.otpExpiresAt = Date.now() + 10 * 60 * 1000;
+  user.otpType = 'login';
+  user.lastOtpSentAt = Date.now();
+  user.otpResendCount = 0;
+  await user.save();
+
+  const message = `
+    <h2>Your Login Verification Code</h2>
+    <p>Your login code is: <strong>${otp}</strong></p>
+    <p>This code will expire in 10 minutes.</p>
+  `;
+
+  try {
+    await sendEmail(email, 'Your Login Verification Code', message);
+    res.status(200).json({ success: true, message: 'OTP sent to email' });
+  } catch (error) {
+    user.otp = undefined;
+    user.otpExpiresAt = undefined;
+    await user.save();
+    return next(new AppError('Email could not be sent', 500));
+  }
+});
+
+/**
+ * @VERIFY_LOGIN_OTP
+ * @ROUTE @POST {{URL}}/api/v1/user/verify-login-otp
+ * @ACCESS Public
+ */
+export const verifyLoginOtp = asyncHandler(async (req, res, next) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
+
+  const user = await User.findOne({ email }).select('+otp');
+  if (!user || !user.isVerified) return next(new AppError('User not found or not verified', 404));
+
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+  if (user.otp !== hashedOtp) return next(new AppError('Invalid OTP', 400));
+  if (user.otpExpiresAt < Date.now()) return next(new AppError('OTP expired', 400));
+
+  user.otp = undefined;
+  user.otpExpiresAt = undefined;
+  user.otpType = undefined;
+  user.lastLoginDate = Date.now();
+  await user.save();
+
+  const token = await user.generateJWTToken();
+  user.password = undefined;
+
+  res.cookie('token', token, cookieOptions);
+  res.status(200).json({ success: true, message: 'Logged in successfully', user });
+});
+
+/**
+ * @RESEND_OTP
+ * @ROUTE @POST {{URL}}/api/v1/user/resend-otp
+ * @ACCESS Public
+ */
+export const resendOtp = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+  if (!email) return next(new AppError('Email is required', 400));
+
+  const user = await User.findOne({ email });
+  if (!user) return next(new AppError('User not found', 404));
+
+  if (user.lastOtpSentAt && Date.now() - user.lastOtpSentAt.getTime() < 60000) {
+    return next(new AppError('Please wait 60 seconds before requesting a new OTP', 429));
+  }
+
+  if (user.otpResendCount >= 3) {
+    return next(new AppError('Maximum OTP requests exceeded. Please try again later.', 429));
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+  user.otp = hashedOtp;
+  user.otpExpiresAt = Date.now() + 10 * 60 * 1000;
+  user.lastOtpSentAt = Date.now();
+  user.otpResendCount = (user.otpResendCount || 0) + 1;
+  await user.save();
+
+  const type = user.otpType === 'signup' ? 'Verification' : 'Login';
+  const message = `
+    <h2>Your ${type} Code</h2>
+    <p>Your code is: <strong>${otp}</strong></p>
+    <p>This code will expire in 10 minutes.</p>
+  `;
+
+  try {
+    await sendEmail(email, `Your ${type} Code`, message);
+    res.status(200).json({ success: true, message: 'OTP resent successfully' });
+  } catch (error) {
+    user.otp = undefined;
+    user.otpExpiresAt = undefined;
+    await user.save();
+    return next(new AppError('Email could not be sent', 500));
+  }
 });

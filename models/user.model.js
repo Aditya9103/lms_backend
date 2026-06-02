@@ -25,9 +25,44 @@ const userSchema = new Schema(
     },
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      // required: [true, 'Password is required'], // Removed for Google Auth compatibility
       minlength: [8, 'Password must be at least 8 characters'],
       select: false, // Will not select password upon looking up a document
+    },
+    googleId: {
+      type: String,
+      default: null,
+    },
+    authProvider: {
+      type: String,
+      enum: ['email', 'google', 'otp'],
+      default: 'email',
+    },
+    lastLoginDate: {
+      type: Date,
+      default: Date.now,
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    otp: {
+      type: String,
+      select: false,
+    },
+    otpExpiresAt: {
+      type: Date,
+    },
+    otpType: {
+      type: String,
+      enum: ['signup', 'login'],
+    },
+    otpResendCount: {
+      type: Number,
+      default: 0,
+    },
+    lastOtpSentAt: {
+      type: Date,
     },
     subscription: {
       id: String,

@@ -12,6 +12,12 @@ import {
   updateVideoProgress,
   submitQuiz,
   submitAssignment,
+  googleAuth,
+  otpSignup,
+  verifySignupOtp,
+  otpLogin,
+  verifyLoginOtp,
+  resendOtp,
 } from "../controllers/user.controller.js";
 import { isLoggedIn } from "../middlewares/auth.middleware.js";
 import upload from "../middlewares/multer.middleware.js";
@@ -19,7 +25,13 @@ import upload from "../middlewares/multer.middleware.js";
 const router = Router();
 
 router.post("/register", upload.single("avatar"), registerUser);
+router.post("/otp-signup", upload.single("avatar"), otpSignup);
+router.post("/verify-signup-otp", verifySignupOtp);
 router.post("/login", loginUser);
+router.post("/otp-login", otpLogin);
+router.post("/verify-login-otp", verifyLoginOtp);
+router.post("/resend-otp", resendOtp);
+router.post("/google-auth", googleAuth);
 router.post("/logout", logoutUser);
 router.get("/me", isLoggedIn, getLoggedInUserDetails);
 router.post("/reset", forgotPassword);
