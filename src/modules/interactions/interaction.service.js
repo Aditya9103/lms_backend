@@ -1,0 +1,59 @@
+import userRepository from '../users/user.repository.js';
+import AppError from '../../core/utils/AppError.js';
+
+class InteractionService {
+  async toggleBookmark(userId, courseId, lectureId, timestamp, label) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    const bookmarkIndex = user.bookmarks.findIndex(
+      b => b.courseId.toString() === courseId && b.lectureId === lectureId && Math.abs(b.timestamp - timestamp) < 1
+    );
+
+    let message;
+    if (bookmarkIndex > -1) {
+      user.bookmarks.splice(bookmarkIndex, 1);
+      message = 'Bookmark removed';
+    } else {
+      user.bookmarks.push({ courseId, lectureId, timestamp, label });
+      message = 'Bookmark added';
+    }
+
+    await userRepository.save(user);
+    return { message, bookmarks: user.bookmarks };
+  }
+
+  async getBookmarks(userId, courseId) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    return user.bookmarks.filter(b => b.courseId.toString() === courseId);
+  }
+
+  async addNote(userId, courseId, lectureId, lectureTitle, timestamp, text) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    user.notes.push({ courseId, lectureId, lectureTitle, timestamp, text });
+    await userRepository.save(user);
+
+    return user.notes.filter(n => n.courseId.toString() === courseId);
+  }
+
+  async getNotes(userId, courseId) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    return user.notes.filter(n => n.courseId.toString() === courseId);
+  }
+
+  async deleteNote(userId, noteId) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    user.notes = user.notes.filter(n => n._id.toString() !== noteId);
+    await userRepository.save(user);
+  }
+}
+
+export default new InteractionService();

@@ -1,0 +1,35 @@
+import Course from './course.model.js';
+
+class CourseRepository {
+  async findAll() {
+    return await Course.find({}).select('-lectures');
+  }
+
+  async findById(id) {
+    return await Course.findById(id);
+  }
+
+  async create(courseData) {
+    return await Course.create(courseData);
+  }
+
+  async updateById(id, updateData) {
+    return await Course.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { runValidators: true }
+    );
+  }
+
+  async deleteById(id) {
+    const course = await Course.findById(id);
+    if (course) await course.remove();
+    return course;
+  }
+
+  async save(courseDocument) {
+    return await courseDocument.save();
+  }
+}
+
+export default new CourseRepository();
