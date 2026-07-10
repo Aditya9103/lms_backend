@@ -284,11 +284,35 @@ export const submitAssignment = asyncHandler(async (req, res, next) => {
   }
 
   try {
-    const progress = await userService.submitAssignment(id, courseId, assignmentId);
+    const progress = await userService.submitAssignment(id, courseId, assignmentId, req.file);
     res.status(200).json({
       success: true,
       message: 'Assignment submitted successfully',
       progress
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/**
+ * @GRADE_ASSIGNMENT
+ * @ROUTE @PUT {{URL}}/api/v1/user/assignment/grade
+ * @ACCESS Private (Admin only)
+ */
+export const gradeAssignment = asyncHandler(async (req, res, next) => {
+  const { userId, courseId, assignmentId, score } = req.body;
+
+  if (!userId || !courseId || !assignmentId || score === undefined) {
+    return next(new AppError('User ID, Course ID, Assignment ID, and score are required', 400));
+  }
+
+  try {
+    const gradedAssignment = await userService.gradeAssignment(userId, courseId, assignmentId, score);
+    res.status(200).json({
+      success: true,
+      message: 'Assignment graded successfully',
+      gradedAssignment
     });
   } catch (error) {
     return next(error);

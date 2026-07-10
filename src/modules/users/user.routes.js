@@ -24,8 +24,9 @@ import {
   adminVerifyLoginOtp,
   adminPasswordLogin,
   superAdminSignup,
+  gradeAssignment,
 } from "./user.controller.js";
-import { isLoggedIn } from "../../core/middlewares/auth.middleware.js";
+import { isLoggedIn, authorizeRoles } from "../../core/middlewares/auth.middleware.js";
 import upload from "../../core/middlewares/multer.middleware.js";
 
 const router = Router();
@@ -58,6 +59,7 @@ router.put("/update/:id", isLoggedIn, upload.single("avatar"), updateUser);
 router.post("/progress/:courseId/:lectureId", isLoggedIn, updateCourseProgress);
 router.post("/video-progress", isLoggedIn, updateVideoProgress);
 router.post("/quiz/submit", isLoggedIn, submitQuiz);
-router.post("/assignment/submit", isLoggedIn, submitAssignment);
+router.post("/assignment/submit", isLoggedIn, upload.single("assignmentFile"), submitAssignment);
+router.put("/assignment/grade", isLoggedIn, authorizeRoles("ADMIN", "SUPER_ADMIN"), gradeAssignment);
 
 export default router;

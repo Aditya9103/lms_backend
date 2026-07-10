@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import cloudinary from 'cloudinary';
 import courseRepository from './course.repository.js';
+import User from '../users/user.model.js';
 import AppError from '../../core/utils/AppError.js';
 
 class CourseService {
@@ -37,7 +38,19 @@ class CourseService {
   async getLecturesByCourseId(courseId) {
     const course = await courseRepository.findById(courseId);
     if (!course) throw new AppError('Invalid course id or course not found.', 404);
-    return course.lectures;
+
+    let allLectures = course.lectures ? course.lectures.map(l => ({...l.toObject(), sectionTitle: 'General'})) : [];
+    
+    if (course.sections && course.sections.length > 0) {
+      course.sections.forEach(section => {
+        if (section.lectures) {
+          const sectionLecs = section.lectures.map(l => ({...l.toObject(), sectionTitle: section.title}));
+          allLectures = [...allLectures, ...sectionLecs];
+        }
+      });
+    }
+
+    return allLectures;
   }
 
   async addLectureToCourseById(courseId, title, description, file) {
@@ -112,6 +125,25 @@ class CourseService {
     return course;
   }
 
+  async addLectureToSection(courseId, sectionId, title, description, videoData) {
+    const course = await courseRepository.findById(courseId);
+    if (!course) throw new AppError('Course does not exist', 404);
+
+    const section = course.sections.id(sectionId);
+    if (!section) throw new AppError('Section not found.', 404);
+
+    let lectureData = {
+      public_id: videoData.public_id,
+      secure_url: videoData.secure_url
+    };
+
+    section.lectures.push({ title, description, lecture: lectureData });
+    course.numberOfLectures = (course.numberOfLectures || 0) + 1;
+
+    await courseRepository.save(course);
+    return course;
+  }
+
   async addQuizToSection(courseId, sectionId, quizData) {
     const course = await courseRepository.findById(courseId);
     if (!course) throw new AppError('Course not found.', 404);
@@ -136,7 +168,7 @@ class CourseService {
       try {
         const result = await cloudinary.v2.uploader.upload(file.path, { 
           folder: 'lms_assignments',
-          resource_type: 'raw'
+          resource_type: 'auto'
         });
         if (result) {
           fileData = { public_id: result.public_id, secure_url: result.secure_url };
@@ -154,6 +186,29 @@ class CourseService {
     section.assignments.push({ title, description, dueDate, file: fileData });
     await courseRepository.save(course);
     return course;
+  }
+
+  async getCourseSubmissions(courseId) {
+    const course = await courseRepository.findById(courseId);
+    if (!course) throw new AppError('Course not found.', 404);
+
+    const usersWithProgress = await User.find({
+      'progress.courseId': courseId
+    }).select('fullName email avatar progress');
+
+    const submissions = usersWithProgress.map(user => {
+      const courseProgress = user.progress.find(p => p.courseId.toString() === courseId);
+      return {
+        userId: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        avatar: user.avatar,
+        completedQuizzes: courseProgress.completedQuizzes || [],
+        completedAssignments: courseProgress.completedAssignments || []
+      };
+    });
+
+    return submissions;
   }
 }
 

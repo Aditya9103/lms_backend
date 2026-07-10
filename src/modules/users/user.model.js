@@ -112,6 +112,7 @@ const userSchema = new Schema(
             assignmentId: Schema.Types.ObjectId,
             status: { type: String, enum: ['SUBMITTED', 'GRADED'], default: 'SUBMITTED' },
             score: Number,
+            fileUrl: String,
             submittedAt: { type: Date, default: Date.now },
           },
         ],

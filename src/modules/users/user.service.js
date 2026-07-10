@@ -260,9 +260,25 @@ class UserService {
     return { progress: user.progress, weakTopics: user.weakTopics };
   }
 
-  async submitAssignment(userId, courseId, assignmentId) {
+  async submitAssignment(userId, courseId, assignmentId, file) {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
+
+    let fileUrl = null;
+    if (file) {
+      try {
+        const result = await cloudinary.v2.uploader.upload(file.path, {
+          folder: 'lms_submissions',
+          resource_type: 'auto'
+        });
+        if (result) {
+          fileUrl = result.secure_url;
+          await fs.rm(`uploads/${file.filename}`);
+        }
+      } catch (error) {
+        throw new AppError(error || 'File not uploaded, please try again', 400);
+      }
+    }
 
     const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
 
@@ -275,17 +291,44 @@ class UserService {
         user.progress[progressIndex].completedAssignments.push({
           assignmentId,
           status: 'SUBMITTED',
+          fileUrl,
         });
+      } else {
+        if (fileUrl) {
+           user.progress[progressIndex].completedAssignments[assignmentIndex].fileUrl = fileUrl;
+        }
       }
     } else {
       user.progress.push({
         courseId,
-        completedAssignments: [{ assignmentId, status: 'SUBMITTED' }],
+        completedAssignments: [{ assignmentId, status: 'SUBMITTED', fileUrl }],
       });
     }
 
     await userRepository.save(user);
     return user.progress;
+  }
+
+  async gradeAssignment(userId, courseId, assignmentId, score) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw new AppError('User not found', 404);
+
+    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
+    if (progressIndex === -1) throw new AppError('Course progress not found for user', 404);
+
+    const assignmentIndex = user.progress[progressIndex].completedAssignments.findIndex(
+      (a) => a.assignmentId.toString() === assignmentId
+    );
+
+    if (assignmentIndex === -1) {
+      throw new AppError('Assignment submission not found', 404);
+    }
+
+    user.progress[progressIndex].completedAssignments[assignmentIndex].score = score;
+    user.progress[progressIndex].completedAssignments[assignmentIndex].status = 'GRADED';
+
+    await userRepository.save(user);
+    return user.progress[progressIndex].completedAssignments[assignmentIndex];
   }
 
   async googleAuth(credential) {

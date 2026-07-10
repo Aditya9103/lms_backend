@@ -8,8 +8,11 @@ import {
   removeLectureFromCourse,
   updateCourseById,
   addSection,
+  addLectureToSection,
   addQuizToSection,
-  addAssignmentToSection
+  addAssignmentToSection,
+  getCourseSubmissions,
+  getCloudinarySignature
 } from './course.controller.js';
 import {
   authorizeRoles,
@@ -19,6 +22,8 @@ import {
 import upload from '../../core/middlewares/multer.middleware.js';
 
 const router = Router();
+
+router.get('/cloudinary-signature', isLoggedIn, authorizeRoles('ADMIN'), getCloudinarySignature);
 
 router
   .route('/')
@@ -48,11 +53,19 @@ router
   .post(isLoggedIn, authorizeRoles('ADMIN'), addSection);
 
 router
+  .route('/:id/sections/:sectionId/lectures')
+  .post(isLoggedIn, authorizeRoles('ADMIN'), addLectureToSection);
+
+router
   .route('/:id/sections/:sectionId/quizzes')
   .post(isLoggedIn, authorizeRoles('ADMIN'), addQuizToSection);
 
 router
   .route('/:id/sections/:sectionId/assignments')
   .post(isLoggedIn, authorizeRoles('ADMIN'), upload.single('assignmentFile'), addAssignmentToSection);
+
+router
+  .route('/:id/submissions')
+  .get(isLoggedIn, authorizeRoles('ADMIN'), getCourseSubmissions);
 
 export default router;
