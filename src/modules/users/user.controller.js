@@ -1,492 +1,218 @@
-import crypto from 'crypto';
-import fs from 'fs/promises';
-
-import cloudinary from 'cloudinary';
-import { OAuth2Client } from 'google-auth-library';
-
+/**
+ * user.controller.js — User & Auth HTTP handlers
+ *
+ * All handlers use:
+ *  - sendSuccess() from apiResponse.js for the response envelope
+ *  - Zod DTOs (via validate middleware) instead of manual field checks
+ *  - setRefreshTokenCookie / clearRefreshTokenCookie for token transport
+ *
+ * Envelope shape: { success: true, data: { ... } }
+ * Error shape:    { success: false, error: { code, message } }
+ */
 import asyncHandler from '../../core/middlewares/asyncHandler.middleware.js';
 import AppError from '../../core/utils/AppError.js';
-import sendEmail from '../../core/utils/sendEmail.js';
 import userService from './user.service.js';
+import {
+  setRefreshTokenCookie,
+  clearRefreshTokenCookie,
+} from '../../core/middlewares/auth.middleware.js';
+import { sendSuccess } from '../../core/utils/apiResponse.js';
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
 
-const cookieOptions = {
-  secure: true,
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  httpOnly: true,
-  sameSite: 'none',
+/**
+ * Shared response for all login/verify endpoints.
+ * Sets the refresh token cookie + returns the access token in the body.
+ */
+const sendAuthResponse = (res, { user, token, rawRefreshToken }, status = 200) => {
+  if (rawRefreshToken) setRefreshTokenCookie(res, rawRefreshToken);
+  return sendSuccess(res, { accessToken: token, user }, status);
 };
 
-
+// ── Registration ──────────────────────────────────────────────────────────────
 
 /**
- * @REGISTER
- * @ROUTE @POST {{URL}}/api/v1/user/register
- * @ACCESS Public
+ * @openapi
+ * /user/register:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Register a new user account
  */
-export const registerUser = asyncHandler(async (req, res, next) => {
-  const { fullName, email, password } = req.body;
+export const registerUser = asyncHandler(async (req, res) => {
+  const result = await userService.registerUser(req.body, req.file);
+  return sendAuthResponse(res, result, 201);
+});
 
-  if (!fullName || !email || !password) {
-    return next(new AppError('All fields are required', 400));
-  }
+// ── Password-based Auth ───────────────────────────────────────────────────────
 
-  try {
-    const { user, token } = await userService.registerUser({ fullName, email, password }, req.file);
-    
-    res.cookie('token', token, cookieOptions);
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      user,
-    });
-  } catch (error) {
-    return next(error);
-  }
+/**
+ * @openapi
+ * /user/login:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Login with email and password
+ */
+export const loginUser = asyncHandler(async (req, res) => {
+  const result = await userService.loginUser(req.body.email, req.body.password);
+  return sendAuthResponse(res, result);
 });
 
 /**
- * @LOGIN
- * @ROUTE @POST {{URL}}/api/v1/user/login
- * @ACCESS Public
+ * @openapi
+ * /user/logout:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Logout — revokes refresh token cookie
  */
-export const loginUser = asyncHandler(async (req, res, next) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return next(new AppError('Email and Password are required', 400));
+export const logoutUser = asyncHandler(async (req, res) => {
+  if (req.cookies?.refreshToken) {
+    try {
+      const user = await userService.getUserByRefreshToken(req.cookies.refreshToken);
+      if (user) await userService.revokeToken(user._id, req.cookies.refreshToken);
+    } catch (_) { /* best-effort — clear cookie regardless */ }
   }
-
-  try {
-    const { user, token } = await userService.loginUser(email, password);
-    
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({
-      success: true,
-      message: 'User logged in successfully',
-      user,
-    });
-  } catch (error) {
-    return next(error);
-  }
+  clearRefreshTokenCookie(res);
+  return sendSuccess(res, null, 200);
 });
 
-/**
- * @LOGOUT
- * @ROUTE @POST {{URL}}/api/v1/user/logout
- * @ACCESS Public
- */
-export const logoutUser = asyncHandler(async (_req, res, _next) => {
-  // Setting the cookie value to null
-  res.cookie('token', null, {
-    secure: true,
-    maxAge: 0,
-    httpOnly: true,
-    sameSite: 'none',
-  });
+// ── Profile ───────────────────────────────────────────────────────────────────
 
-
-
-  // Sending the response
-  res.status(200).json({
-    success: true,
-    message: 'User logged out successfully',
-  });
+export const getLoggedInUserDetails = asyncHandler(async (req, res) => {
+  const user = await userService.updateStreak(req.user.id);
+  return sendSuccess(res, { user });
 });
 
-/**
- * @LOGGED_IN_USER_DETAILS
- * @ROUTE @GET {{URL}}/api/v1/user/me
- * @ACCESS Private(Logged in users only)
- */
-export const getLoggedInUserDetails = asyncHandler(async (req, res, next) => {
-  try {
-    const user = await userService.updateStreak(req.user.id);
-    res.status(200).json({
-      success: true,
-      message: 'User details',
-      user,
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @FORGOT_PASSWORD
- * @ROUTE @POST {{URL}}/api/v1/user/reset
- * @ACCESS Public
- */
-export const forgotPassword = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) return next(new AppError('Email is required', 400));
-
-  try {
-    await userService.forgotPassword(email);
-    res.status(200).json({
-      success: true,
-      message: `Reset password token has been sent to ${email} successfully`,
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @RESET_PASSWORD
- * @ROUTE @POST {{URL}}/api/v1/user/reset/:resetToken
- * @ACCESS Public
- */
-export const resetPassword = asyncHandler(async (req, res, next) => {
-  const { resetToken } = req.params;
-  const { password } = req.body;
-
-  if (!password) return next(new AppError('Password is required', 400));
-
-  try {
-    await userService.resetPassword(resetToken, password);
-    res.status(200).json({
-      success: true,
-      message: 'Password changed successfully',
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @CHANGE_PASSWORD
- * @ROUTE @POST {{URL}}/api/v1/user/change-password
- * @ACCESS Private (Logged in users only)
- */
-export const changePassword = asyncHandler(async (req, res, next) => {
-  const { oldPassword, newPassword } = req.body;
-  const { id } = req.user;
-
-  if (!oldPassword || !newPassword) {
-    return next(new AppError('Old password and new password are required', 400));
-  }
-
-  try {
-    await userService.changePassword(id, oldPassword, newPassword);
-    res.status(200).json({
-      success: true,
-      message: 'Password changed successfully',
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @UPDATE_USER
- * @ROUTE @POST {{URL}}/api/v1/user/update/:id
- * @ACCESS Private (Logged in user only)
- */
-export const updateUser = asyncHandler(async (req, res, next) => {
+export const updateUser = asyncHandler(async (req, res) => {
   const { fullName } = req.body;
-  const { id } = req.params;
-
-  try {
-    await userService.updateUser(id, fullName, req.file);
-    res.status(200).json({
-      success: true,
-      message: 'User details updated successfully',
-    });
-  } catch (error) {
-    return next(error);
-  }
+  await userService.updateUser(req.params.id, fullName, req.file);
+  return sendSuccess(res, null);
 });
 
-/**
- * @UPDATE_COURSE_PROGRESS
- * @ROUTE @POST {{URL}}/api/v1/user/progress/:courseId/:lectureId
- * @ACCESS Private (Logged in user only)
- */
-export const updateCourseProgress = asyncHandler(async (req, res, next) => {
-  const { courseId, lectureId } = req.params;
-  const { id } = req.user;
+// ── Password reset ────────────────────────────────────────────────────────────
 
-  try {
-    const progress = await userService.updateCourseProgress(id, courseId, lectureId);
-    res.status(200).json({
-      success: true,
-      message: 'Progress updated successfully',
-      progress,
-    });
-  } catch (error) {
-    return next(error);
-  }
+export const forgotPassword = asyncHandler(async (req, res) => {
+  await userService.forgotPassword(req.body.email);
+  return sendSuccess(res, null);
 });
 
-/**
- * @UPDATE_VIDEO_PROGRESS
- * @ROUTE @POST {{URL}}/api/v1/user/video-progress
- * @ACCESS Private (Logged in user only)
- */
-export const updateVideoProgress = asyncHandler(async (req, res, next) => {
-  const { courseId, lectureId, timestamp } = req.body;
-  const { id } = req.user;
-
-  if (!courseId || !lectureId) {
-    return next(new AppError('Course ID and Lecture ID are required', 400));
-  }
-
-  try {
-    const recentlyWatched = await userService.updateVideoProgress(id, courseId, lectureId, timestamp);
-    res.status(200).json({
-      success: true,
-      message: 'Video progress saved',
-      recentlyWatched,
-    });
-  } catch (error) {
-    return next(error);
-  }
+export const resetPassword = asyncHandler(async (req, res) => {
+  await userService.resetPassword(req.params.resetToken, req.body.password);
+  return sendSuccess(res, null);
 });
 
-/**
- * @SUBMIT_QUIZ
- * @ROUTE @POST {{URL}}/api/v1/user/quiz/submit
- * @ACCESS Private (Logged in user only)
- */
-export const submitQuiz = asyncHandler(async (req, res, next) => {
-  const { courseId, quizId, score, totalQuestions, topic } = req.body;
-  const { id } = req.user;
-
-  if (!courseId || !quizId) {
-    return next(new AppError('Course ID and Quiz ID are required', 400));
-  }
-
-  try {
-    const { progress, weakTopics } = await userService.submitQuiz(id, courseId, quizId, score, totalQuestions, topic);
-    res.status(200).json({
-      success: true,
-      message: 'Quiz submitted successfully',
-      progress,
-      weakTopics
-    });
-  } catch (error) {
-    return next(error);
-  }
+export const changePassword = asyncHandler(async (req, res) => {
+  await userService.changePassword(req.user.id, req.body.oldPassword, req.body.newPassword);
+  return sendSuccess(res, null);
 });
 
-/**
- * @SUBMIT_ASSIGNMENT
- * @ROUTE @POST {{URL}}/api/v1/user/assignment/submit
- * @ACCESS Private (Logged in user only)
- */
-export const submitAssignment = asyncHandler(async (req, res, next) => {
-  const { courseId, assignmentId } = req.body;
-  const { id } = req.user;
+// ── OTP Flow ──────────────────────────────────────────────────────────────────
 
-  if (!courseId || !assignmentId) {
-    return next(new AppError('Course ID and Assignment ID are required', 400));
-  }
-
-  try {
-    const progress = await userService.submitAssignment(id, courseId, assignmentId, req.file);
-    res.status(200).json({
-      success: true,
-      message: 'Assignment submitted successfully',
-      progress
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @GRADE_ASSIGNMENT
- * @ROUTE @PUT {{URL}}/api/v1/user/assignment/grade
- * @ACCESS Private (Admin only)
- */
-export const gradeAssignment = asyncHandler(async (req, res, next) => {
-  const { userId, courseId, assignmentId, score } = req.body;
-
-  if (!userId || !courseId || !assignmentId || score === undefined) {
-    return next(new AppError('User ID, Course ID, Assignment ID, and score are required', 400));
-  }
-
-  try {
-    const gradedAssignment = await userService.gradeAssignment(userId, courseId, assignmentId, score);
-    res.status(200).json({
-      success: true,
-      message: 'Assignment graded successfully',
-      gradedAssignment
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @GOOGLE_AUTH
- * @ROUTE @POST {{URL}}/api/v1/user/google-auth
- * @ACCESS Public
- */
-export const googleAuth = asyncHandler(async (req, res, next) => {
-  const { credential } = req.body;
-  if (!credential) return next(new AppError('Google credential is required', 400));
-
-  try {
-    const { user, token } = await userService.googleAuth(credential);
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({
-      success: true,
-      message: 'Google Authentication successful',
-      user,
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-/**
- * @OTP_SIGNUP
- * @ROUTE @POST {{URL}}/api/v1/user/otp-signup
- * @ACCESS Public
- */
-export const otpSignup = asyncHandler(async (req, res, next) => {
+export const otpSignup = asyncHandler(async (req, res) => {
   const { fullName, email, password } = req.body;
-  if (!fullName || !email) return next(new AppError('Full Name and Email are required', 400));
-
-  try {
-    await userService.otpSignup(fullName, email, password, req.file);
-    res.status(200).json({ success: true, message: 'OTP sent to email' });
-  } catch (error) {
-    return next(error);
-  }
+  await userService.otpSignup(fullName, email, password, req.file);
+  return sendSuccess(res, null);
 });
 
-export const verifySignupOtp = asyncHandler(async (req, res, next) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
-
-  try {
-    const { user, token } = await userService.verifyOtp(email, otp, 'signup');
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({ success: true, message: 'User registered successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+export const verifySignupOtp = asyncHandler(async (req, res) => {
+  const result = await userService.verifyOtp(req.body.email, req.body.otp, 'signup');
+  return sendAuthResponse(res, result, 201);
 });
 
-export const otpLogin = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) return next(new AppError('Email is required', 400));
-
-  try {
-    await userService.otpLogin(email);
-    res.status(200).json({ success: true, message: 'OTP sent to email' });
-  } catch (error) {
-    return next(error);
-  }
+export const otpLogin = asyncHandler(async (req, res) => {
+  await userService.otpLogin(req.body.email);
+  return sendSuccess(res, null);
 });
 
-export const verifyLoginOtp = asyncHandler(async (req, res, next) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
-
-  try {
-    const { user, token } = await userService.verifyOtp(email, otp, 'login');
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({ success: true, message: 'Logged in successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+export const verifyLoginOtp = asyncHandler(async (req, res) => {
+  const result = await userService.verifyOtp(req.body.email, req.body.otp, 'login');
+  return sendAuthResponse(res, result);
 });
 
-export const resendOtp = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) return next(new AppError('Email is required', 400));
-
-  try {
-    await userService.resendOtp(email);
-    res.status(200).json({ success: true, message: 'OTP resent successfully' });
-  } catch (error) {
-    return next(error);
-  }
+export const resendOtp = asyncHandler(async (req, res) => {
+  await userService.resendOtp(req.body.email);
+  return sendSuccess(res, null);
 });
 
-/**
- * @ADMIN_OTP_SIGNUP
- * @ROUTE @POST {{URL}}/api/v1/user/admin/otp-signup
- * @ACCESS Public
- */
-export const adminOtpSignup = asyncHandler(async (req, res, next) => {
+// ── Admin Auth ────────────────────────────────────────────────────────────────
+
+export const adminOtpSignup = asyncHandler(async (req, res) => {
   const { fullName, email, password, adminSecret } = req.body;
-  if (!fullName || !email || !adminSecret) return next(new AppError('Full Name, Email, and Admin Secret are required', 400));
-
-  try {
-    await userService.adminOtpSignup(fullName, email, password, adminSecret, req.file);
-    res.status(200).json({ success: true, message: 'OTP sent to email' });
-  } catch (error) {
-    return next(error);
-  }
+  await userService.adminOtpSignup(fullName, email, password, adminSecret, req.file);
+  return sendSuccess(res, null);
 });
 
-export const adminVerifySignupOtp = asyncHandler(async (req, res, next) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
-
-  try {
-    const { user, token } = await userService.verifyOtp(email, otp, 'signup', 'ADMIN');
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({ success: true, message: 'Admin account verified successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+export const adminVerifySignupOtp = asyncHandler(async (req, res) => {
+  const result = await userService.verifyOtp(req.body.email, req.body.otp, 'signup', 'ADMIN');
+  return sendAuthResponse(res, result, 201);
 });
 
-export const adminOtpLogin = asyncHandler(async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) return next(new AppError('Email is required', 400));
-
-  try {
-    await userService.otpLogin(email, 'ADMIN');
-    res.status(200).json({ success: true, message: 'OTP sent to email' });
-  } catch (error) {
-    return next(error);
-  }
+export const adminOtpLogin = asyncHandler(async (req, res) => {
+  await userService.otpLogin(req.body.email, 'ADMIN');
+  return sendSuccess(res, null);
 });
 
-export const adminVerifyLoginOtp = asyncHandler(async (req, res, next) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) return next(new AppError('Email and OTP are required', 400));
-
-  try {
-    const { user, token } = await userService.verifyOtp(email, otp, 'login', 'ADMIN');
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({ success: true, message: 'Admin logged in successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+export const adminVerifyLoginOtp = asyncHandler(async (req, res) => {
+  const result = await userService.verifyOtp(req.body.email, req.body.otp, 'login', 'ADMIN');
+  return sendAuthResponse(res, result);
 });
 
-export const adminPasswordLogin = asyncHandler(async (req, res, next) => {
-  const { email, password } = req.body;
-  if (!email || !password) return next(new AppError('Email and Password are required', 400));
-
-  try {
-    const { user, token } = await userService.adminPasswordLogin(email, password);
-    res.cookie('token', token, cookieOptions);
-    res.status(200).json({ success: true, message: 'Admin logged in successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+export const adminPasswordLogin = asyncHandler(async (req, res) => {
+  const result = await userService.adminPasswordLogin(req.body.email, req.body.password);
+  return sendAuthResponse(res, result);
 });
 
-export const superAdminSignup = asyncHandler(async (req, res, next) => {
+// ── Super Admin ───────────────────────────────────────────────────────────────
+
+export const superAdminSignup = asyncHandler(async (req, res) => {
   const { fullName, email, password, superAdminSecurityCode } = req.body;
-  if (!fullName || !email || !password || !superAdminSecurityCode) {
-    return next(new AppError('All fields including security code are required', 400));
-  }
+  const result = await userService.superAdminSignup(fullName, email, password, superAdminSecurityCode);
+  return sendAuthResponse(res, result, 201);
+});
 
-  try {
-    const { user, token } = await userService.superAdminSignup(fullName, email, password, superAdminSecurityCode);
-    res.cookie('token', token, cookieOptions);
-    res.status(201).json({ success: true, message: 'Super Admin registered successfully', user });
-  } catch (error) {
-    return next(error);
-  }
+// ── Google OAuth ──────────────────────────────────────────────────────────────
+
+export const googleAuth = asyncHandler(async (req, res, next) => {
+  if (!req.body?.credential) return next(new AppError('Google credential is required', 400));
+  const result = await userService.googleAuth(req.body.credential);
+  return sendAuthResponse(res, result);
+});
+
+// ── Progress & Assessment ─────────────────────────────────────────────────────
+
+export const updateCourseProgress = asyncHandler(async (req, res) => {
+  const { courseId, lectureId } = req.params;
+  const progress = await userService.updateCourseProgress(req.user.id, courseId, lectureId);
+  return sendSuccess(res, { progress });
+});
+
+export const updateVideoProgress = asyncHandler(async (req, res) => {
+  const { courseId, lectureId, timestamp } = req.body;
+  const recentlyWatched = await userService.updateVideoProgress(
+    req.user.id, courseId, lectureId, timestamp
+  );
+  return sendSuccess(res, { recentlyWatched });
+});
+
+export const submitQuiz = asyncHandler(async (req, res) => {
+  const { courseId, quizId, score, totalQuestions, topic } = req.body;
+  const result = await userService.submitQuiz(
+    req.user.id, courseId, quizId, score, totalQuestions, topic
+  );
+  return sendSuccess(res, { progress: result.progress, weakTopics: result.weakTopics });
+});
+
+export const submitAssignment = asyncHandler(async (req, res) => {
+  const { courseId, assignmentId } = req.body;
+  const progress = await userService.submitAssignment(
+    req.user.id, courseId, assignmentId, req.file
+  );
+  return sendSuccess(res, { progress });
+});
+
+export const gradeAssignment = asyncHandler(async (req, res) => {
+  const { userId, courseId, assignmentId, score } = req.body;
+  const gradedAssignment = await userService.gradeAssignment(
+    userId, courseId, assignmentId, score
+  );
+  return sendSuccess(res, { gradedAssignment });
 });

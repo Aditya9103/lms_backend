@@ -5,6 +5,13 @@ import { OAuth2Client } from 'google-auth-library';
 import userRepository from './user.repository.js';
 import sendEmail from '../../core/utils/sendEmail.js';
 import AppError from '../../core/utils/AppError.js';
+import config from '../../core/config/env.js';
+import {
+  checkLockout,
+  recordFailedAttempt,
+  resetFailedAttempts,
+} from '../../core/middlewares/auth.middleware.js';
+import logger from '../../core/logger/logger.js';
 
 class UserService {
   
@@ -57,9 +64,20 @@ class UserService {
   }
 
   async loginUser(email, password) {
+    // Select password field explicitly
     const user = await userRepository.findByEmailWithPassword(email);
 
-    if (!(user && (await user.comparePassword(password)))) {
+    if (!user) {
+      throw new AppError('Email or Password do not match or user does not exist', 401);
+    }
+
+    // Shared lockout check (same counter for all login methods)
+    checkLockout(user);
+
+    const passwordMatch = await user.comparePassword(password);
+    if (!passwordMatch) {
+      recordFailedAttempt(user);
+      await userRepository.save(user);
       throw new AppError('Email or Password do not match or user does not exist', 401);
     }
 
@@ -67,13 +85,16 @@ class UserService {
       throw new AppError('Please verify your email via OTP before logging in', 403);
     }
 
+    resetFailedAttempts(user);
     user.lastLoginDate = Date.now();
+    const rawRefreshToken = user.generateRefreshToken(user._id.toString());
     await userRepository.save(user);
 
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    logger.info(`[Auth] Login success: ${user.email}`);
+    return { user, token, rawRefreshToken };
   }
 
   async updateStreak(userId) {
@@ -110,7 +131,7 @@ class UserService {
     const resetToken = await user.generatePasswordResetToken();
     await userRepository.save(user);
 
-    const resetPasswordUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetPasswordUrl = `${config.FRONTEND_URL}/reset-password/${resetToken}`;
     const subject = 'Reset Password';
     const message = `You can reset your password by clicking <a href=${resetPasswordUrl} target="_blank">Reset your password</a>\nIf the above link does not work for some reason then copy paste this link in new tab ${resetPasswordUrl}.\n If you have not requested this, kindly ignore.`;
 
@@ -332,12 +353,12 @@ class UserService {
   }
 
   async googleAuth(credential) {
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
     let ticket;
     try {
       ticket = await client.verifyIdToken({
         idToken: credential,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: config.GOOGLE_CLIENT_ID,
       });
     } catch (error) {
       throw new AppError('Invalid Google Token', 401);
@@ -347,13 +368,16 @@ class UserService {
     let user = await userRepository.findByEmail(email);
 
     if (user) {
+      // Shared lockout check — even Google OAuth goes through it
+      checkLockout(user);
+
       if (!user.googleId) {
         user.googleId = sub;
         user.authProvider = 'google';
         user.isVerified = true;
       }
+      resetFailedAttempts(user);
       user.lastLoginDate = Date.now();
-      await userRepository.save(user);
     } else {
       user = await userRepository.create({
         fullName: name,
@@ -366,10 +390,14 @@ class UserService {
       });
     }
 
+    const rawRefreshToken = user.generateRefreshToken('google-oauth');
+    await userRepository.save(user);
+
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    logger.info(`[Auth] Google login: ${user.email}`);
+    return { user, token, rawRefreshToken };
   }
 
   async sendOtpEmail(email, type, otp) {
@@ -434,26 +462,37 @@ class UserService {
   async verifyOtp(email, otp, expectedType, role = 'USER') {
     const user = await userRepository.findByEmailWithOtp(email);
     if (!user) throw new AppError('User not found', 404);
-    
+
+    // Shared lockout check — OTP shares same counter as password login
+    checkLockout(user);
+
     if (expectedType === 'signup' && user.isVerified) throw new AppError('Already verified', 400);
     if (expectedType === 'login' && !user.isVerified) throw new AppError('Not verified', 404);
     if (role === 'ADMIN' && user.role !== 'ADMIN') throw new AppError('Unauthorized access', 403);
 
     const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
-    if (user.otp !== hashedOtp) throw new AppError('Invalid OTP', 400);
-    if (user.otpExpiresAt < Date.now()) throw new AppError('OTP expired', 400);
 
+    if (user.otp !== hashedOtp || user.otpExpiresAt < Date.now()) {
+      recordFailedAttempt(user);
+      await userRepository.save(user);
+      throw new AppError(user.otp !== hashedOtp ? 'Invalid OTP' : 'OTP expired', 400);
+    }
+
+    resetFailedAttempts(user);
     user.isVerified = true;
     user.otp = undefined;
     user.otpExpiresAt = undefined;
     user.otpType = undefined;
     user.lastLoginDate = Date.now();
+
+    const rawRefreshToken = user.generateRefreshToken('otp-verify');
     await userRepository.save(user);
 
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    logger.info(`[Auth] OTP ${expectedType} verified: ${user.email}`);
+    return { user, token, rawRefreshToken };
   }
 
   async otpLogin(email, role = 'USER') {
@@ -563,23 +602,36 @@ class UserService {
 
   async adminPasswordLogin(email, password) {
     const user = await userRepository.findByEmailWithPassword(email);
-    if (!(user && (await user.comparePassword(password)))) {
+
+    if (!user) throw new AppError('Email or Password do not match', 401);
+
+    // Shared lockout check
+    checkLockout(user);
+
+    const passwordMatch = await user.comparePassword(password);
+    if (!passwordMatch) {
+      recordFailedAttempt(user);
+      await userRepository.save(user);
       throw new AppError('Email or Password do not match', 401);
     }
+
     if (!user.isVerified) throw new AppError('Please verify your email before logging in', 403);
     if (user.role !== 'ADMIN') throw new AppError('Unauthorized access', 403);
 
+    resetFailedAttempts(user);
     user.lastLoginDate = Date.now();
+    const rawRefreshToken = user.generateRefreshToken('admin-password');
     await userRepository.save(user);
 
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    logger.info(`[Auth] Admin password login: ${user.email}`);
+    return { user, token, rawRefreshToken };
   }
 
   async superAdminSignup(fullName, email, password, superAdminSecurityCode) {
-    if (superAdminSecurityCode !== process.env.SUPER_ADMIN_SECURITY_CODE) {
+    if (superAdminSecurityCode !== config.SUPER_ADMIN_SECURITY_CODE) {
       throw new AppError('Invalid setup security code', 403);
     }
 
@@ -597,10 +649,12 @@ class UserService {
 
     if (!user) throw new AppError('Failed to create super admin', 400);
 
+    const rawRefreshToken = user.generateRefreshToken('initial-setup');
+    await userRepository.save(user);
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    return { user, token, rawRefreshToken };
   }
   async getAdminUserStats() {
     const allUsersCount = await userRepository.countUsers({});
@@ -608,6 +662,16 @@ class UserService {
       'subscription.status': 'active',
     });
     return { allUsersCount, subscribedUsersCount };
+  }
+
+  /** Lookup by raw refresh token (for logout). */
+  async getUserByRefreshToken(rawToken) {
+    return await userRepository.findByRefreshToken(rawToken);
+  }
+
+  /** Revoke a single refresh token for a user. */
+  async revokeToken(userId, rawToken) {
+    return await userRepository.revokeRefreshToken(userId, rawToken);
   }
 }
 

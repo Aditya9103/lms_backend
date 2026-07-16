@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Schema, model } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import config from '../../core/config/env.js';
 
 const userSchema = new Schema(
   {
@@ -86,6 +87,23 @@ const userSchema = new Schema(
       select: false,
     },
     permissions: [{ type: String }],
+
+    // ── Auth security ─────────────────────────────────────────────────────────
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockoutUntil: { type: Date, default: null },
+
+    // Refresh tokens: stored as hashed tokens with per-device metadata.
+    // Never store raw refresh tokens in the DB.
+    refreshTokens: [
+      {
+        tokenHash: { type: String, required: true, select: false },
+        deviceInfo: { type: String, default: 'unknown' },
+        createdAt: { type: Date, default: Date.now },
+        expiresAt: { type: Date, required: true },
+        isRevoked: { type: Boolean, default: false },
+      },
+    ],
+
     forgotPasswordToken: String,
     forgotPasswordExpiry: Date,
     progress: [
@@ -176,15 +194,40 @@ userSchema.methods = {
     return await bcrypt.compare(plainPassword, this.password);
   },
 
-  // Will generate a JWT token with user id as payload
+  /**
+   * Generates a short-lived access token (15 min).
+   * Payload is minimal — no subscription data (fetch fresh on each request).
+   */
   generateJWTToken: async function () {
-    return await jwt.sign(
-      { id: this._id, role: this.role, subscription: this.subscription },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: process.env.JWT_EXPIRY,
-      }
+    return jwt.sign(
+      { id: this._id, role: this.role },
+      config.JWT_SECRET,
+      { expiresIn: config.JWT_EXPIRY }
     );
+  },
+
+  /**
+   * Generates a cryptographically random refresh token,
+   * stores its SHA-256 hash in the refreshTokens array,
+   * and returns the raw token to be set as an httpOnly cookie.
+   *
+   * @param {string} deviceInfo - User-Agent string for session tracking
+   * @returns {string} rawRefreshToken
+   */
+  generateRefreshToken: function (deviceInfo = 'unknown') {
+    const rawToken = crypto.randomBytes(40).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + (config.REFRESH_TOKEN_EXPIRY_DAYS || 30));
+
+    // Clean up expired tokens before adding new one (housekeeping)
+    this.refreshTokens = (this.refreshTokens || []).filter(
+      (t) => !t.isRevoked && t.expiresAt > new Date()
+    );
+
+    this.refreshTokens.push({ tokenHash, deviceInfo, expiresAt });
+    return rawToken;
   },
 
   // This will generate a token for password reset

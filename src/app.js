@@ -1,42 +1,132 @@
-import cookieParser from 'cookie-parser';
-config();
+/**
+ * app.js — Express application setup.
+ *
+ * Middleware mounting order matters:
+ *  1. requestId — must be FIRST (sets correlation ID for all subsequent logs)
+ *  2. Security headers (helmet) — as early as possible
+ *  3. CORS
+ *  4. Body parsers
+ *  5. Routes
+ *  6. 404 handler
+ *  7. Error middleware — must be LAST
+ */
 import express from 'express';
-import { config } from 'dotenv';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
+
+import requestIdMiddleware from './core/middlewares/requestId.middleware.js';
 import errorMiddleware from './core/middlewares/error.middleware.js';
+import { helmetMiddleware, sanitizeMiddleware } from './core/security/security.middleware.js';
+import { apiLimiter, refreshLimiter } from './core/middlewares/rateLimiter.middleware.js';
+import { refreshAccessToken } from './core/middlewares/auth.middleware.js';
+import logger from './core/logger/logger.js';
+import config from './core/config/env.js';
 
 const app = express();
 
+// ─── 1. Correlation ID (must be first) ────────────────────────────────────────
+app.use(requestIdMiddleware);
+
+// ─── 2. Security headers (Helmet) ─────────────────────────────────────────────
+app.use(helmetMiddleware);
+
+// ─── 3. CORS ──────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.FRONTEND_URL?.replace(/\/$/, ''),
+  config.FRONTEND_URL,
+  config.FRONTEND_URL?.replace(/\/$/, ''),
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ].filter(Boolean);
 
-// Middlewares
-// Built-In
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-// Third-Party
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, curl)
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      logger.warn(`[CORS] Blocked request from: ${origin}`);
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
   })
 );
 
-
-app.use(morgan('dev'));
+// ─── 4. Body parsers ──────────────────────────────────────────────────────────
+// NOTE (Phase 7): The Razorpay webhook route must be registered BEFORE
+// express.json() with express.raw() as route-specific middleware. It is
+// registered directly in app.js (not via payment.routes.js) to guarantee
+// ordering. See Phase 7.1 in the implementation plan.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Server Status Check Route
-app.get('/ping', (_req, res) => {
-  res.send('Pong');
+// ─── 5. NoSQL injection sanitization ─────────────────────────────────────────
+// Must run AFTER body parsers (needs req.body to exist)
+app.use(sanitizeMiddleware);
+
+// ─── 6. HTTP request logging (Morgan → Winston) ────────────────────────────────
+app.use(
+  morgan('combined', {
+    stream: { write: (msg) => logger.http(msg.trim()) },
+    skip: (req) => req.url === '/health' || req.url === '/ready',
+  })
+);
+
+// ─── 7. Global rate limiting ──────────────────────────────────────────────────
+// Applied to all /api/v1 routes. Auth-specific tighter limits are applied
+// per-route in user.routes.js (authLimiter).
+app.use('/api/v1', apiLimiter);
+
+// ─── 8. Refresh token endpoint ────────────────────────────────────────────────
+// Registered separately (not under /user router) to keep auth infrastructure
+// at the top level and avoid circular import issues.
+/**
+ * @openapi
+ * /api/v1/auth/refresh:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Rotate refresh token and issue new access token
+ *     description: Reads refreshToken from httpOnly cookie. Returns new accessToken in body and rotates the httpOnly cookie.
+ */
+app.post('/api/v1/auth/refresh', refreshLimiter, refreshAccessToken);
+
+// ─── 9. Health & Readiness endpoints ─────────────────────────────────────────
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// Import all routes
+app.get('/ready', async (_req, res) => {
+  const checks = {};
+  let allOk = true;
+
+  // MongoDB check
+  try {
+    const { connection } = await import('mongoose');
+    checks.mongo = connection.readyState === 1 ? 'ok' : 'unavailable';
+    if (checks.mongo !== 'ok') allOk = false;
+  } catch {
+    checks.mongo = 'error';
+    allOk = false;
+  }
+
+  // Redis check
+  try {
+    const { redisClient } = await import('./core/cache/redis.js');
+    await redisClient.ping();
+    checks.redis = 'ok';
+  } catch {
+    checks.redis = 'unavailable';
+    allOk = false;
+  }
+
+  res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'not ready', checks });
+});
+
+// ─── 6. API Routes ────────────────────────────────────────────────────────────
 import userRoutes from './modules/users/user.routes.js';
 import courseRoutes from './modules/courses/course.routes.js';
 import paymentRoutes from './modules/payments/payment.routes.js';
@@ -47,8 +137,6 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import interactionRoutes from './modules/interactions/interaction.routes.js';
 import superAdminRoutes from './modules/superAdmin/superAdmin.routes.js';
 
-// THE ROUTE MAP: This tells the server where to go when a user clicks a link.
-// For example: if you go to '/api/v1/user', we send you to the 'userRoutes' section.
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/courses', courseRoutes);
 app.use('/api/v1/payments', paymentRoutes);
@@ -59,14 +147,18 @@ app.use('/api/v1/interaction', interactionRoutes);
 app.use('/api/v1/super-admin', superAdminRoutes);
 app.use('/api/v1', miscRoutes);
 
-// THE CATCH-ALL: If a user types a wrong address (like '/api/v1/wrong'),
-// we send them this 'Not Found' message.
-app.all('*', (_req, res) => {
-  res.status(404).send('OOPS!!! 404 Page Not Found');
+// ─── 7. 404 ───────────────────────────────────────────────────────────────────
+app.all('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: `Route ${req.method} ${req.originalUrl} not found`,
+    },
+  });
 });
 
-// THE EMERGENCY BRAKE: This is our global error handler.
-// If any of the code above crashes, this middleware catches it and sends a clean message.
+// ─── 8. Centralized error handler (must be last) ──────────────────────────────
 app.use(errorMiddleware);
 
 export default app;
