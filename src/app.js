@@ -46,6 +46,7 @@ const allowedOrigins = [
   config.FRONTEND_URL?.replace(/\/$/, ''),
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'http://localhost:5174'
 ].filter(Boolean);
 
 app.use(
@@ -142,7 +143,7 @@ app.get('/ready', async (_req, res) => {
       skipVersionCheck: true,
     });
     // Swallow internal BullMQ errors so they don't leak as unhandled events
-    pingQueue.on('error', () => {});
+    pingQueue.on('error', () => { });
     await pingQueue.getJobCounts();
     await pingQueue.close();
     checks.bullmq = 'ok';

@@ -239,3 +239,6 @@ $RECYCLE.BIN/
 .swo
 *~
 .netrwhist
+uploads/
+uploads/
+test-email.js

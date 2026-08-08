@@ -35,6 +35,7 @@ export const LoginDto = z.object({
 export const OtpRequestDto = z.object({
   email: emailSchema,
   fullName: fullNameSchema.optional(),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
 });
 
 /** POST /user/verify-signup-otp, /user/verify-login-otp */
