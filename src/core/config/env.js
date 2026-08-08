@@ -60,8 +60,16 @@ const envSchema = z.object({
   // Contact
   CONTACT_US_EMAIL: z.string().email().optional(),
 
-  // Observability (optional)
+  // Observability (all optional — no-ops when absent)
   SENTRY_DSN: z.string().url().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+  SENTRY_PROFILES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+  PROMETHEUS_PORT: z.coerce.number().default(9090),
+  METRICS_SECRET: z.string().optional(), // Required in production to gate /metrics endpoint
+
+  // BullMQ worker concurrency
+  WORKER_CONCURRENCY: z.coerce.number().default(5),
 
   // Feature flags
   VIDEO_COMPLETION_THRESHOLD: z.coerce.number().min(1).max(100).default(90),

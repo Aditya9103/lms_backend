@@ -16,9 +16,17 @@ import logger from '../logger/logger.js';
 import config from '../config/env.js';
 
 const createRedisClient = () => {
+  const isDev = config.NODE_ENV === 'development';
+  const MAX_DEV_RETRIES = 10;
+
   const client = new Redis(config.REDIS_URL, {
     maxRetriesPerRequest: null, // Required by BullMQ
     retryStrategy(times) {
+      // In development, stop retrying after MAX_DEV_RETRIES to avoid log spam
+      if (isDev && times > MAX_DEV_RETRIES) {
+        logger.warn(`[Redis] Giving up after ${MAX_DEV_RETRIES} attempts. Start Redis to enable caching and rate-limiting.`);
+        return null; // null = stop retrying
+      }
       const delay = Math.min(times * 200, 5000);
       logger.warn(`[Redis] Connection retry attempt ${times}, next in ${delay}ms`);
       return delay;
@@ -28,9 +36,12 @@ const createRedisClient = () => {
 
   client.on('connect', () => logger.info('[Redis] Connected'));
   client.on('ready', () => logger.info('[Redis] Ready'));
-  client.on('error', (err) => logger.error('[Redis] Error', { error: err.message }));
-  client.on('close', () => logger.warn('[Redis] Connection closed'));
-  client.on('reconnecting', () => logger.warn('[Redis] Reconnecting...'));
+  // 'error' fires on every failed attempt — retryStrategy already logs the attempt count.
+  // Log at debug only so the terminal isn't flooded during normal dev without Redis.
+  client.on('error', (err) => logger.debug('[Redis] Connection error', { error: err.message }));
+  client.on('close', () => logger.debug('[Redis] Connection closed'));
+  client.on('reconnecting', () => logger.debug('[Redis] Reconnecting...'));
+  client.on('end', () => logger.warn('[Redis] Connection permanently closed (all retries exhausted)'));
 
   return client;
 };

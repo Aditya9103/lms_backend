@@ -22,11 +22,20 @@ import { apiLimiter, refreshLimiter } from './core/middlewares/rateLimiter.middl
 import { refreshAccessToken } from './core/middlewares/auth.middleware.js';
 import logger from './core/logger/logger.js';
 import config from './core/config/env.js';
+import { metricsMiddleware, metricsRouter } from './core/middlewares/metrics.middleware.js';
+import { initSentry } from './core/config/sentry.js';
+
+// Initialise Sentry as early as possible (no-op if SENTRY_DSN is absent)
+initSentry();
 
 const app = express();
 
-// ─── 1. Correlation ID (must be first) ────────────────────────────────────────
+// ─── 1. Correlation ID (must be first) ─────────────────────────────────────────────
 app.use(requestIdMiddleware);
+
+// ─── 1b. Prometheus HTTP metrics ──────────────────────────────────────────
+app.use(metricsMiddleware);
+app.use(metricsRouter);
 
 // ─── 2. Security headers (Helmet) ─────────────────────────────────────────────
 app.use(helmetMiddleware);
@@ -105,8 +114,8 @@ app.get('/ready', async (_req, res) => {
 
   // MongoDB check
   try {
-    const { connection } = await import('mongoose');
-    checks.mongo = connection.readyState === 1 ? 'ok' : 'unavailable';
+    const mongoose = await import('mongoose');
+    checks.mongo = mongoose.default.connection.readyState === 1 ? 'ok' : 'unavailable';
     if (checks.mongo !== 'ok') allOk = false;
   } catch {
     checks.mongo = 'error';
@@ -121,6 +130,25 @@ app.get('/ready', async (_req, res) => {
   } catch {
     checks.redis = 'unavailable';
     allOk = false;
+  }
+
+  // BullMQ check (if queues are configured)
+  try {
+    const { Queue } = await import('bullmq');
+    const { redisClient } = await import('./core/cache/redis.js');
+    // Ping via a minimal queue connection
+    const pingQueue = new Queue('__health_ping__', {
+      connection: redisClient,
+      skipVersionCheck: true,
+    });
+    // Swallow internal BullMQ errors so they don't leak as unhandled events
+    pingQueue.on('error', () => {});
+    await pingQueue.getJobCounts();
+    await pingQueue.close();
+    checks.bullmq = 'ok';
+  } catch {
+    // BullMQ is not critical — degraded but still serviceable
+    checks.bullmq = 'unavailable';
   }
 
   res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'not ready', checks });

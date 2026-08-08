@@ -38,19 +38,51 @@ const httpServer = createServer(app);
 
 const start = async () => {
   try {
-    // Connect to MongoDB
+    // Connect to MongoDB (required — fail fast if unavailable)
     await connectToDB();
 
-    // Connect Redis (lazyConnect — explicit connect call required)
-    await redisClient.connect();
+    // Connect Redis (optional — graceful degradation if unavailable)
+    try {
+      await redisClient.connect();
+    } catch (redisErr) {
+      logger.warn('Redis unavailable — starting without Redis (rate-limiting, caching, queues degraded)', {
+        error: redisErr.message,
+      });
+    }
+
+    // httpServer.listen() emits errors as async 'error' events — NOT thrown.
+    // Must handle separately; try/catch above does NOT catch EADDRINUSE etc.
+    httpServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Port ${PORT} is already in use. Kill the existing process first (pkill -f "node src/server") then restart.`);
+      } else {
+        logger.error('HTTP server error', { error: err.message, code: err.code });
+      }
+      process.exit(1);
+    });
 
     httpServer.listen(PORT, () => {
       logger.info(`Server running on http://localhost:${PORT} [${config.NODE_ENV}]`);
     });
   } catch (err) {
-    logger.error('Failed to start server', { error: err.message, stack: err.stack });
+    logger.error('Failed to start server', { error: err.message });
     process.exit(1);
   }
 };
+
+// Guard: ioredis emits a terminal error when retryStrategy returns null.
+// Without this, Node.js crashes with an uncaught exception.
+process.on('uncaughtException', (err) => {
+  // Swallow known ioredis terminal-state errors silently
+  if (err.message?.includes('Connection is closed') ||
+      err.message?.includes('Redis is disconnected') ||
+      err.message?.includes('ERR Connection') ) {
+    logger.warn('[Redis] Terminal connection error suppressed (Redis not available)', { error: err.message });
+    return;
+  }
+  // Everything else is a real unexpected crash — log and exit
+  logger.error('Uncaught exception — shutting down', { error: err.message, stack: err.stack });
+  process.exit(1);
+});
 
 start();
