@@ -36,7 +36,7 @@ export const setRefreshTokenCookie = (res, rawRefreshToken) => {
   res.cookie('refreshToken', rawRefreshToken, {
     httpOnly: true,
     secure: config.NODE_ENV === 'production',
-    sameSite: config.NODE_ENV === 'production' ? 'strict' : 'lax',
+    sameSite: config.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: (config.REFRESH_TOKEN_EXPIRY_DAYS || 30) * 24 * 60 * 60 * 1000,
     path: '/',
   });
@@ -49,7 +49,7 @@ export const clearRefreshTokenCookie = (res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: config.NODE_ENV === 'production',
-    sameSite: config.NODE_ENV === 'production' ? 'strict' : 'lax',
+    sameSite: config.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
   });
 };
