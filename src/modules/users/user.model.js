@@ -111,31 +111,73 @@ const userSchema = new Schema(
         courseId: {
           type: Schema.Types.ObjectId,
           ref: 'Course',
+          required: true,
         },
-        completedLectures: [
+        // ── Lecture progress ────────────────────────────────────────────────
+        lectures: [
           {
-            type: Schema.Types.ObjectId,
+            lectureId: { type: Schema.Types.ObjectId, required: true },
+            watchedPercent: { type: Number, default: 0, min: 0, max: 100 },
+            lastPositionSeconds: { type: Number, default: 0 },
+            completed: { type: Boolean, default: false },
+            completedAt: Date,
+            lastWatchedAt: { type: Date, default: Date.now },
           },
         ],
-        completedQuizzes: [
+        // ── Quiz attempts ────────────────────────────────────────────────────
+        quizAttempts: [
           {
-            quizId: Schema.Types.ObjectId,
+            quizId: { type: Schema.Types.ObjectId, required: true },
+            attemptNumber: { type: Number, default: 1 },
             score: Number,
-            totalQuestions: Number,
-            completedAt: { type: Date, default: Date.now },
-          },
-        ],
-        completedAssignments: [
-          {
-            assignmentId: Schema.Types.ObjectId,
-            status: { type: String, enum: ['SUBMITTED', 'GRADED'], default: 'SUBMITTED' },
-            score: Number,
-            fileUrl: String,
+            maxScore: Number,
+            percentage: Number,
+            passed: Boolean,
+            answers: Schema.Types.Mixed,
+            timeTakenSeconds: Number,
             submittedAt: { type: Date, default: Date.now },
           },
         ],
+        // ── Assignment submissions + append-only grade history ───────────────
+        assignments: [
+          {
+            assignmentId: { type: Schema.Types.ObjectId, required: true },
+            status: {
+              type: String,
+              enum: ['SUBMITTED', 'GRADED', 'RESUBMITTED'],
+              default: 'SUBMITTED',
+            },
+            fileUrl: String,
+            submittedAt: { type: Date, default: Date.now },
+            gradeHistory: [
+              {
+                gradedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+                totalScore: Number,
+                maxScore: Number,
+                percentage: Number,
+                feedback: String,
+                rubricScores: [
+                  {
+                    criterionId: Schema.Types.ObjectId,
+                    criterionName: String,
+                    earnedPoints: Number,
+                    maxPoints: Number,
+                    comment: String,
+                  },
+                ],
+                gradedAt: { type: Date, default: Date.now },
+              },
+            ],
+          },
+        ],
+        overallPercent: { type: Number, default: 0, min: 0, max: 100 },
+        certificateIssued: { type: Boolean, default: false },
+        certificateIssuedAt: Date,
+        enrolledAt: { type: Date, default: Date.now },
+        lastActivityAt: { type: Date, default: Date.now },
       },
     ],
+
     recentlyWatched: [
       {
         courseId: { type: Schema.Types.ObjectId, ref: 'Course' },

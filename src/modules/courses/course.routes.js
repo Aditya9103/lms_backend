@@ -15,7 +15,19 @@ import {
   getCloudinarySignature,
 } from './course.controller.js';
 import {
+  updateLectureProgress,
+  getCourseProgress,
+  submitQuiz,
+  submitAssignment,
+  gradeAssignment,
+  getCertificate,
+  publishCourse,
+  unpublishCourse,
+  softDeleteCourse,
+} from './progress.controller.js';
+import {
   authorizeRoles,
+  authorize,
   authorizeSubscribers,
   isLoggedIn,
 } from '../../core/middlewares/auth.middleware.js';
@@ -79,7 +91,7 @@ router
  *     security: [bearerAuth: []]
  *   delete:
  *     tags: [Courses]
- *     summary: Soft-delete a course (Admin only)
+ *     summary: Hard-delete a course (Admin only - use soft delete for normal ops)
  *     security: [bearerAuth: []]
  */
 router
@@ -94,6 +106,14 @@ router
   )
   .delete(isLoggedIn, authorizeRoles('ADMIN'), deleteCourseById)
   .put(isLoggedIn, authorizeRoles('ADMIN'), validate(UpdateCourseDto), updateCourseById);
+
+// ── Phase 5: Publish lifecycle ────────────────────────────────────────────────
+
+router.post('/:id/publish', isLoggedIn, authorize('course:publish'), publishCourse);
+router.post('/:id/unpublish', isLoggedIn, authorize('course:publish'), unpublishCourse);
+router.delete('/:id/soft', isLoggedIn, authorize('course:delete'), softDeleteCourse);
+
+// ── Sections ──────────────────────────────────────────────────────────────────
 
 router
   .route('/:id/sections')
@@ -121,4 +141,28 @@ router
   .route('/:id/submissions')
   .get(isLoggedIn, authorizeRoles('ADMIN'), getCourseSubmissions);
 
+// ── Phase 5: Progress tracking ────────────────────────────────────────────────
+
+router.get('/:courseId/progress', isLoggedIn, getCourseProgress);
+router.post('/:courseId/progress/lecture', isLoggedIn, updateLectureProgress);
+
+// ── Phase 5: Quiz ─────────────────────────────────────────────────────────────
+
+router.post('/:courseId/quiz/:quizId/submit', isLoggedIn, authorizeSubscribers, submitQuiz);
+
+// ── Phase 5: Assignments ──────────────────────────────────────────────────────
+
+router.post('/:courseId/assignment/:assignmentId/submit', isLoggedIn, authorizeSubscribers, submitAssignment);
+router.post(
+  '/:courseId/assignment/:assignmentId/grade',
+  isLoggedIn,
+  authorize('course:grade'),
+  gradeAssignment
+);
+
+// ── Phase 5: Certificates ─────────────────────────────────────────────────────
+
+router.get('/:courseId/certificate', isLoggedIn, getCertificate);
+
 export default router;
+

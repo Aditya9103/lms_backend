@@ -14,6 +14,8 @@ export const Permissions = Object.freeze({
   COURSE_DELETE: 'course:delete',
   COURSE_PUBLISH: 'course:publish',
   COURSE_VIEW_ALL: 'course:view_all',
+  COURSE_GRADE: 'course:grade',       // Phase 5 — grade assignment submissions
+  COURSE_VIEW_DRAFT: 'course:view_draft', // Phase 5 — view unpublished courses
 
   // Users
   USER_BAN: 'user:ban',
@@ -49,6 +51,8 @@ export const RolePermissions = Object.freeze({
     Permissions.COURSE_DELETE,
     Permissions.COURSE_PUBLISH,
     Permissions.COURSE_VIEW_ALL,
+    Permissions.COURSE_GRADE,
+    Permissions.COURSE_VIEW_DRAFT,
     Permissions.GRADE_ASSIGN,
     Permissions.USER_VIEW,
     Permissions.BLOG_MODERATE,
@@ -57,3 +61,4 @@ export const RolePermissions = Object.freeze({
   USER: [],
   SUPER_ADMIN: Object.values(Permissions), // All permissions
 });
+
