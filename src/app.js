@@ -165,6 +165,7 @@ import blogRoutes from './modules/blogs/blog.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import interactionRoutes from './modules/interactions/interaction.routes.js';
 import superAdminRoutes from './modules/superAdmin/superAdmin.routes.js';
+import notificationRoutes from './modules/notifications/notification.routes.js';
 
 app.use('/api/v1/user', userRoutes);
 app.use('/api/v1/courses', courseRoutes);
@@ -174,6 +175,7 @@ app.use('/api/v1/blogs', blogRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/interaction', interactionRoutes);
 app.use('/api/v1/super-admin', superAdminRoutes);
+app.use('/api/v1/notifications', notificationRoutes); // Phase 6
 app.use('/api/v1', miscRoutes);
 
 // ─── 7. 404 ───────────────────────────────────────────────────────────────────

@@ -14,6 +14,11 @@ const notificationSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    metadata: {
+      type: Schema.Types.Mixed,  // arbitrary payload — courseId, lectureId, etc.
+      default: {},
+    },
+    link: String,                // optional deep-link URL for the frontend
     targetRole: {
       type: String,
       enum: ['ADMIN', 'SUPER_ADMIN'],
