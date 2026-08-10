@@ -24,6 +24,7 @@ import logger from './core/logger/logger.js';
 import config from './core/config/env.js';
 import { metricsMiddleware, metricsRouter } from './core/middlewares/metrics.middleware.js';
 import { initSentry } from './core/config/sentry.js';
+import webhookHandler from './modules/payments/webhook.controller.js'; // Phase 7 — must be top-level
 
 // Initialise Sentry as early as possible (no-op if SENTRY_DSN is absent)
 initSentry();
@@ -62,10 +63,15 @@ app.use(
 );
 
 // ─── 4. Body parsers ──────────────────────────────────────────────────────────
-// NOTE (Phase 7): The Razorpay webhook route must be registered BEFORE
-// express.json() with express.raw() as route-specific middleware. It is
-// registered directly in app.js (not via payment.routes.js) to guarantee
-// ordering. See Phase 7.1 in the implementation plan.
+// Phase 7: Webhook route is registered BEFORE express.json() with express.raw()
+// so Razorpay's HMAC signature verification receives the original Buffer.
+// express.json() would parse and discard the raw body, breaking HMAC.
+app.post(
+  '/api/v1/payments/webhook',
+  express.raw({ type: 'application/json' }),
+  webhookHandler
+);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

@@ -5,6 +5,7 @@ import {
   verifySubscription,
   cancelSubscription,
   allPayments,
+  reconcilePayments,
 } from './payment.controller.js';
 import {
   authorizeRoles,
@@ -21,5 +22,8 @@ router
   .post(isLoggedIn, authorizeSubscribers, cancelSubscription);
 router.route('/razorpay-key').get(isLoggedIn, getRazorpayApiKey);
 router.route('/').get(isLoggedIn, authorizeRoles('ADMIN'), allPayments);
+
+// Phase 7.2: Admin-triggered reconciliation of unverified payments
+router.post('/reconcile', isLoggedIn, authorizeRoles('ADMIN'), reconcilePayments);
 
 export default router;

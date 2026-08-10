@@ -84,10 +84,15 @@ class UserRepository {
     return await userDocument.save();
   }
 
+  async findOne(query) {
+    return await User.findOne(query);
+  }
+
   async countUsers(query = {}) {
     return await User.countDocuments(query);
   }
 }
 
 export default new UserRepository();
+
 
