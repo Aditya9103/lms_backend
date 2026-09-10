@@ -14,6 +14,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import userRepository from '../../modules/users/user.repository.js';
+import courseRepository from '../../modules/courses/course.repository.js';
 import AppError from '../utils/AppError.js';
 import asyncHandler from './asyncHandler.middleware.js';
 import logger from '../logger/logger.js';
@@ -185,9 +186,23 @@ export const authorizeSubscribers = asyncHandler(async (req, _res, next) => {
   const isPrivileged = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
   const hasActiveSubscription = user.subscription?.status === 'active';
 
-  if (!isPrivileged && !hasActiveSubscription) {
-    return next(new AppError('Please subscribe to access course content.', 403));
+  if (isPrivileged || hasActiveSubscription) {
+    return next();
   }
+
+  // Check if target course is marked as free preview
+  if (req.params?.id) {
+    try {
+      const course = await courseRepository.findById(req.params.id);
+      if (course && course.isFree) {
+        return next();
+      }
+    } catch {
+      // ignore and fall through to subscription check
+    }
+  }
+
+  return next(new AppError('Please subscribe to access course content.', 403));
 
   next();
 });

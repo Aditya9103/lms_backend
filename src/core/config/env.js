@@ -54,7 +54,8 @@ const envSchema = z.object({
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().optional(),
 
-  // Super Admin
+  // Super Admin & Admin Secrets
+  ADMIN_SECRET: z.string().optional(),
   SUPER_ADMIN_SECURITY_CODE: z.string().optional(),
 
   // Contact

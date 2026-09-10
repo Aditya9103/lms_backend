@@ -16,14 +16,14 @@ export const verifySubscription = asyncHandler(async (req, res) => {
   // Phase 7.2: client generates UUID v4 once per checkout attempt and sends as header
   const idempotencyKey = req.headers['idempotency-key'] ?? null;
 
-  await paymentService.verifySubscription(
+  const user = await paymentService.verifySubscription(
     req.user.id,
     razorpay_payment_id,
     razorpay_subscription_id,
     razorpay_signature,
     idempotencyKey
   );
-  return sendSuccess(res, null, 200, 'Payment verified successfully');
+  return sendSuccess(res, { user }, 200, 'Payment verified successfully');
 });
 
 export const cancelSubscription = asyncHandler(async (req, res) => {

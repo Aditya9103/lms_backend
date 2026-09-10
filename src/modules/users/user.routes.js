@@ -43,6 +43,7 @@ import {
   VideoProgressDto,
   QuizSubmitDto,
   AdminPasswordLoginDto,
+  AdminOtpSignupDto,
   SuperAdminSignupDto,
 } from './dto/user.dto.js';
 
@@ -87,7 +88,7 @@ router.post('/verify-login-otp', authLimiter, validate(OtpVerifyDto), verifyLogi
 router.post('/resend-otp', authLimiter, validate(ResendOtpDto), resendOtp);
 
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
-router.post('/admin/otp-signup', authLimiter, uploadLimiter, upload.single('avatar'), validate(OtpRequestDto), adminOtpSignup);
+router.post('/admin/otp-signup', authLimiter, uploadLimiter, upload.single('avatar'), validate(AdminOtpSignupDto), adminOtpSignup);
 router.post('/admin/verify-signup-otp', authLimiter, validate(OtpVerifyDto), adminVerifySignupOtp);
 router.post('/admin/otp-login', authLimiter, validate(OtpRequestDto), adminOtpLogin);
 router.post('/admin/verify-login-otp', authLimiter, validate(OtpVerifyDto), adminVerifyLoginOtp);

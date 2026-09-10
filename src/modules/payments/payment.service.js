@@ -51,7 +51,7 @@ class PaymentService {
       const existing = await paymentRepository.findPaymentByIdempotencyKey(idempotencyKey);
       if (existing) {
         logger.info(`[Payment] Idempotent verify — key already processed: ${idempotencyKey}`);
-        return; // safe no-op
+        return await userRepository.findById(userId); // safe no-op returning user
       }
     }
 
@@ -85,6 +85,7 @@ class PaymentService {
     user.subscription.status = 'active';
     await userRepository.save(user);
     logger.info(`[Payment] Subscription verify recorded (awaiting webhook): ${subscriptionId}`);
+    return user;
   }
 
   /**

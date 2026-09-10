@@ -21,7 +21,25 @@ class CourseService {
   }
 
   async createCourse(courseData, file) {
-    const course = await courseRepository.create(courseData);
+    if (!courseData.title || typeof courseData.title !== 'string') {
+      throw new AppError('Course title is required', 400);
+    }
+    const trimmedTitle = courseData.title.trim();
+
+    // Guard against duplicate course creation (e.g. double tap or rapid submissions)
+    const escapedTitle = trimmedTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const existing = await courseRepository.findOne({
+      title: { $regex: new RegExp(`^${escapedTitle}$`, 'i') },
+      softDeleted: { $ne: true },
+    });
+    if (existing) {
+      throw new AppError('A course with this title already exists. Please choose a unique title.', 409);
+    }
+
+    const course = await courseRepository.create({
+      ...courseData,
+      title: trimmedTitle,
+    });
     if (!course) throw new AppError('Course could not be created, please try again', 400);
 
     if (file) {

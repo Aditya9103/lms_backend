@@ -116,6 +116,36 @@ describe('=== Phase 4: Course Lifecycle, Video Transcoding & DRM ===', () => {
       expect(res.body.data.course).toBeDefined();
       expect(res.body.data.course.title).toBe('Architecting Distributed Systems');
     });
+
+    it('rejects duplicate course creation with 409 Conflict to prevent double taps', async () => {
+      const { token } = await createUser({ role: 'ADMIN' });
+
+      // First creation
+      const res1 = await request(app)
+        .post('/api/v1/courses')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          title: 'Concurrency Patterns in Node.js',
+          description: 'Learn async iteration, worker threads, clustering, and race condition prevention.',
+          category: 'Backend',
+          createdBy: 'Senior Architect',
+        });
+      expect(res1.status).toBe(201);
+
+      // Second identical creation (simulating double tap / duplicate submit)
+      const res2 = await request(app)
+        .post('/api/v1/courses')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          title: 'concurrency patterns in node.js', // case-insensitive check
+          description: 'Learn async iteration, worker threads, clustering, and race condition prevention.',
+          category: 'Backend',
+          createdBy: 'Senior Architect',
+        });
+      expect(res2.status).toBe(409);
+      expect(res2.body.success).toBe(false);
+      expect(res2.body.error.message).toMatch(/already exists/i);
+    });
   });
 
   // ─── 4.3 Content Access & Subscription Guards ────────────────────────────────

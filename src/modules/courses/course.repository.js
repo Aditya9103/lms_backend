@@ -9,6 +9,10 @@ class CourseRepository {
     return await Course.findById(id);
   }
 
+  async findOne(query) {
+    return await Course.findOne(query);
+  }
+
   async create(courseData) {
     return await Course.create(courseData);
   }

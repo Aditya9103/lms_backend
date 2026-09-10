@@ -605,7 +605,10 @@ class UserService {
   }
 
   async adminOtpSignup(fullName, email, password, adminSecret, file) {
-    if (adminSecret !== process.env.ADMIN_SECRET) throw new AppError('Invalid Admin Secret', 403);
+    const expectedSecret = (config.ADMIN_SECRET || process.env.ADMIN_SECRET)?.trim();
+    if (!expectedSecret || !adminSecret || adminSecret.trim() !== expectedSecret) {
+      throw new AppError('Invalid Admin Secret', 403);
+    }
 
     let user = await userRepository.findByEmail(email);
     if (user && user.isVerified) throw new AppError('Email already registered and verified', 409);

@@ -38,6 +38,14 @@ export const OtpRequestDto = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').optional(),
 });
 
+/** POST /user/admin/otp-signup */
+export const AdminOtpSignupDto = z.object({
+  email: emailSchema,
+  fullName: fullNameSchema.optional(),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  adminSecret: z.string().min(1, 'Admin secret is required'),
+});
+
 /** POST /user/verify-signup-otp, /user/verify-login-otp */
 export const OtpVerifyDto = z.object({
   email: emailSchema,

@@ -536,4 +536,54 @@ describe('=== Phase 10: Final Subsystems Forensic Audit & Edge Cases ===', () =>
       expect(adminRes.body.data).toHaveProperty('timestamp');
     });
   });
+
+  // ─── 10.8 Admin OTP Signup & Secret Validation ──────────────────────────────
+  describe('10.8 Admin OTP Signup & Secret Validation', () => {
+    it('rejects admin signup with invalid or missing adminSecret with 403 / 400', async () => {
+      const email = `admin_reject_${Date.now()}@example.com`;
+
+      // Missing adminSecret -> 400 validation error
+      const missingSecretRes = await request(app)
+        .post('/api/v1/user/admin/otp-signup')
+        .send({
+          fullName: 'Fraud Admin',
+          email,
+          password: 'Password123!',
+        });
+      expect(missingSecretRes.status).toBe(400);
+
+      // Wrong adminSecret -> 403 Forbidden
+      const wrongSecretRes = await request(app)
+        .post('/api/v1/user/admin/otp-signup')
+        .send({
+          fullName: 'Fraud Admin',
+          email,
+          password: 'Password123!',
+          adminSecret: 'wrong_secret_code',
+        });
+      expect(wrongSecretRes.status).toBe(403);
+      expect(wrongSecretRes.body.error.message).toBe('Invalid Admin Secret');
+    });
+
+    it('accepts admin signup with valid adminSecret and initiates OTP verification', async () => {
+      const email = `admin_accept_${Date.now()}@example.com`;
+
+      const res = await request(app)
+        .post('/api/v1/user/admin/otp-signup')
+        .send({
+          fullName: 'Valid Admin',
+          email,
+          password: 'Password123!',
+          adminSecret: 'learnify_admin_2026',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const user = await User.findOne({ email }).select('+otp');
+      expect(user).toBeDefined();
+      expect(user.role).toBe('ADMIN');
+      expect(user.otp).toBeDefined();
+    });
+  });
 });
