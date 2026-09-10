@@ -25,6 +25,8 @@ import config from './core/config/env.js';
 import { metricsMiddleware, metricsRouter } from './core/middlewares/metrics.middleware.js';
 import { initSentry } from './core/config/sentry.js';
 import webhookHandler from './modules/payments/webhook.controller.js'; // Phase 7 — must be top-level
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './core/docs/swagger.js';
 
 // Initialise Sentry as early as possible (no-op if SENTRY_DSN is absent)
 initSentry();
@@ -113,6 +115,14 @@ app.get('/health', (_req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
+});
+
+// ─── 9.1 API Documentation (Swagger / OpenAPI) ───────────────────────────────
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/docs', (_req, res) => res.redirect('/api-docs'));
+app.get('/api-docs.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
 });
 
 app.get('/ready', async (_req, res) => {
