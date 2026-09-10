@@ -21,7 +21,13 @@ jest.mock('../../core/cache/redis.js', () => {
     connect: jest.fn().mockResolvedValue(true),
     disconnect: jest.fn().mockResolvedValue(true),
     quit: jest.fn().mockResolvedValue(true),
-    call: jest.fn().mockResolvedValue(null),
+    call: jest.fn().mockImplementation((cmd, ...args) => {
+      const command = (cmd || '').toUpperCase();
+      if (command === 'SCRIPT') {
+        return Promise.resolve('e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6e7e8e9');
+      }
+      return Promise.resolve([1, 60000]);
+    }),
     duplicate: jest.fn().mockReturnThis(),
   };
 
