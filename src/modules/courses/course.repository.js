@@ -23,7 +23,13 @@ class CourseRepository {
 
   async deleteById(id) {
     const course = await Course.findById(id);
-    if (course) await course.remove();
+    if (course) {
+      if (typeof course.deleteOne === 'function') {
+        await course.deleteOne();
+      } else {
+        await Course.findByIdAndDelete(id);
+      }
+    }
     return course;
   }
 

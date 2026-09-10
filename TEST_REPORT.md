@@ -14,7 +14,7 @@
 | **Phase 1** | Foundation, Observability & Core Infrastructure | ✅ 53 / 53 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 2** | Security, Authentication Hardening & RBAC | ✅ 63 / 63 Passed (100%) | ✅ Verified | 6 Found / 6 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 3** | User Profile, Avatar & Streak Analytics | ✅ 123 / 123 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
-| **Phase 4** | Course Lifecycle, Video Transcoding & DRM | ⏳ Pending | ⏳ Pending | - | Pending |
+| **Phase 4** | Course Lifecycle, Video Transcoding & DRM | ✅ 143 / 143 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 5** | Payment Gateway, Webhook Idempotency & Invoicing | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 6** | Real-Time Discussions, WebSockets & AI Copilot | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 7** | SuperAdmin Multi-Tenant Operations & System Audits | ⏳ Pending | ⏳ Pending | - | Pending |
@@ -407,6 +407,120 @@ Tests       46 passed (46) (100% pass rate)
 
 ---
 
-*(Phase 4 will be appended below upon initiation)*
+# Phase 4: Course Lifecycle, Video Transcoding & DRM
+
+- **Target Endpoints / Subsystems**:
+  - `GET /api/v1/courses` (Course catalog query, search, filtering, pagination)
+  - `POST /api/v1/courses` (Course creation with thumbnail upload - ADMIN only)
+  - `GET /api/v1/courses/:id` (Course details & lecture list - subscriber & admin guarded)
+  - `PUT /api/v1/courses/:id` (Course details update - ADMIN only)
+  - `DELETE /api/v1/courses/:id` (Course deletion - ADMIN only)
+  - `POST /api/v1/courses/:id/sections` (Curriculum section builder)
+  - `POST /api/v1/courses/:id/sections/:sectionId/lectures` (Add lecture to section)
+  - `POST /api/v1/courses/:id/sections/:sectionId/quizzes` (Add quiz to section)
+  - `POST /api/v1/courses/:id/sections/:sectionId/assignments` (Add assignment to section)
+  - `GET /api/v1/courses/:id/submissions` (Instructor submission viewer)
+  - `GET /api/v1/courses/cloudinary-signature` (Direct secure upload signatures)
+  - Frontend `CourseSlice.js`, `LectureSlice.js`, `courseApi.js`, and `CourseCard.jsx`
+
+---
+
+### 🧪 Iteration Loop 1: Test Execution & Defect Audit
+
+Comprehensive testing across the backend and frontend identified 5 critical and high-severity defects:
+
+#### Defect Register (Loop 1)
+
+| Defect ID | Severity | Category | Target File | Description & Root Cause |
+|---|---|---|---|---|
+| **DEF-04-001** | **CRITICAL** | Contract / Envelope Mismatch | `src/modules/courses/course.controller.js` | **Root Cause**: Controllers bypassed standard `sendSuccess` and returned raw JSON with `courses` and `lectures` at the top level.<br>**Impact**: Broken contract with RTK Query (`response?.data?.courses`) and Redux thunks (`response.data.data.courses` threw TypeError), causing blank course catalogs and lecture displays. |
+| **DEF-04-002** | **CRITICAL** | Framework / Runtime Crash | `src/modules/courses/course.repository.js` | **Root Cause**: `deleteById` called `await course.remove()`.<br>**Impact**: In modern Mongoose, `document.remove()` is removed, causing a runtime crash on any course deletion. |
+| **DEF-04-003** | **HIGH** | Schema Validation Mismatch | `src/modules/courses/course.model.js` & `dto/course.dto.js` | **Root Cause**: `AddQuizDto` validated question types as `['MCQ', 'TRUE_FALSE', 'MULTI_SELECT', 'SHORT_ANSWER']`, but `course.model.js` strictly required lowercase `['single', 'multiple', 'truefalse', 'short']`.<br>**Impact**: Mongoose threw `ValidationError: MCQ is not a valid enum value for path type` when admins created section quizzes. |
+| **DEF-04-004** | **HIGH** | Validation Over-Restriction | `src/modules/courses/dto/course.dto.js` | **Root Cause**: `AddLectureDto` strictly required `cloudinaryPublicId` and `cloudinarySecureUrl` on all lecture creation requests.<br>**Impact**: When uploading video files directly via `POST /courses/:id` (`req.file`), requests failed with 400 validation errors. |
+| **DEF-04-005** | **HIGH** | Resource Leak / File Cleanup | `src/modules/courses/course.service.js` | **Root Cause**: In `createCourse`, `addLectureToCourseById`, and `addAssignmentToSection`, temporary uploaded files were unlinked inside the `try` block.<br>**Impact**: If Cloudinary upload failed, files remained stranded on the server disk in `uploads/`. |
+
+---
+
+### 🛠️ Iteration Loop 2: Code Fixes & Remediation
+
+All 5 defects were remediated directly:
+
+1. **Fix for DEF-04-001** (`course.controller.js`):
+   - Refactored all controller methods to use standard `sendSuccess(res, { courses }, 200, ...)` and `sendSuccess(res, { lectures }, 200, ...)`.
+   - Updated frontend `CourseSlice.js` and `LectureSlice.js` with fallback unwrap chains (`response.data?.data?.courses || response.data?.courses || []`).
+
+2. **Fix for DEF-04-002** (`course.repository.js`):
+   - Replaced `course.remove()` with modern Mongoose `course.deleteOne()` and `Course.findByIdAndDelete(id)`.
+
+3. **Fix for DEF-04-003** (`course.model.js` & `dto/course.dto.js`):
+   - Expanded Mongoose enum in `course.model.js` to accept both uppercase and lowercase enum values, adding a setter mapping `MCQ -> single`, `TRUE_FALSE -> truefalse`, `MULTI_SELECT -> multiple`, and `SHORT_ANSWER -> short`.
+   - Updated `AddQuizDto` to allow all valid variants.
+
+4. **Fix for DEF-04-004** (`dto/course.dto.js`):
+   - Made `cloudinaryPublicId` and `cloudinarySecureUrl` optional in `AddLectureDto` to allow server-side multipart video uploads.
+
+5. **Fix for DEF-04-005** (`course.service.js`):
+   - Encapsulated temporary file cleanup in `finally { try { await fs.rm(file.path, { force: true }); } catch (_) {} }` across all upload actions.
+
+---
+
+### 🔁 Iteration Loop 3: Re-Testing & Full Regression Suite
+
+1. **Backend Integration Suite**: Added [`src/core/__tests__/phase4.courses.test.js`](file:///Users/abhimanyukumar/code/wd/project/lms_backend/src/core/__tests__/phase4.courses.test.js) with 14 automated tests covering catalog retrieval, role-based course creation, subscriber-gated content access, course updates/deletions, curriculum building (sections, lectures, quizzes, assignments), and media signature generation.
+2. **Frontend Vitest Suite**: Added [`frontend/src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx`](file:///Users/abhimanyukumar/code/wd/project/frontend/src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx) with 6 automated tests covering CourseSlice, LectureSlice, RTK Query cache unwrapping, and CourseCard rendering.
+
+#### Security & Contract Verification Matrix:
+| Target Route | HTTP Method | Scenario | Expected Status | Actual Status | Result |
+|---|---|---|---|---|---|
+| `/api/v1/courses` | `GET` | Catalog query | `200 OK` | `200 OK` | ✅ Envelope `{ success, data: { courses } }` |
+| `/api/v1/courses` | `POST` | Student attempts create | `403 Forbidden` | `403 Forbidden` | ✅ RBAC blocked non-admin |
+| `/api/v1/courses` | `POST` | Short title (< 8 chars) | `400 Bad Request` | `400 Bad Request` | ✅ Zod validation caught |
+| `/api/v1/courses` | `POST` | Admin creates course | `201 Created` | `201 Created` | ✅ Course created & catalog invalidated |
+| `/api/v1/courses/:id` | `GET` | Unsubscribed student | `403 Forbidden` | `403 Forbidden` | ✅ Subscription guard enforced |
+| `/api/v1/courses/:id` | `GET` | Subscribed student | `200 OK` | `200 OK` | ✅ Content & lectures returned |
+| `/api/v1/courses/:id` | `GET` | Admin access | `200 OK` | `200 OK` | ✅ Privileged access granted |
+| `/api/v1/courses/:id` | `PUT` | Admin updates course | `200 OK` | `200 OK` | ✅ Detail and catalog caches purged |
+| `/api/v1/courses/:id` | `DELETE` | Admin deletes course | `200 OK` | `200 OK` | ✅ Safe deletion without .remove() crash |
+| `/api/v1/courses/:id/sections` | `POST` | Admin adds section | `200 OK` | `200 OK` | ✅ Section added to curriculum |
+| `/api/v1/courses/:id/sections/:sId/lectures` | `POST` | Admin adds lecture | `200 OK` | `200 OK` | ✅ Lecture added & count incremented |
+| `/api/v1/courses/:id/sections/:sId/quizzes` | `POST` | Admin adds quiz (MCQ) | `200 OK` | `200 OK` | ✅ Schema enum mapping succeeded |
+| `/api/v1/courses/:id/submissions` | `GET` | Admin views submissions | `200 OK` | `200 OK` | ✅ Student progress extracted |
+| `/api/v1/courses/cloudinary-signature` | `GET` | Admin requests signature | `200 OK` | `200 OK` | ✅ Secure signed upload params returned |
+
+---
+
+### 💻 Frontend Parallel Test & Build Verification
+
+```bash
+RUN  v3.2.7 /Users/abhimanyukumar/code/wd/project/frontend
+
+✓ src/shared/utils/__tests__/apiError.test.js (10 tests)
+✓ src/shared/utils/__tests__/hasPermission.test.js (13 tests)
+✓ src/features/auth/__tests__/tokenStoreAndAuthSlice.test.js (9 tests)
+✓ src/features/auth/__tests__/RequireAuth.test.jsx (7 tests)
+✓ src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx (6 tests)
+✓ src/features/users/__tests__/phase3.profileAndProgress.test.jsx (7 tests)
+
+Test Files  6 passed (6)
+Tests       52 passed (52) (100% pass rate)
+```
+
+- **Vite Production Build**: 3,186 modules compiled cleanly with 0 errors in 12.13s (`dist/` verified).
+
+---
+
+### 🏁 Phase 4 Quality Gate Sign-Off
+
+- **Open Backend Defects**: `0`
+- **Open Frontend Defects**: `0`
+- **Backend Tests Passing**: `91 / 91 (100%)`
+- **Frontend Tests Passing**: `52 / 52 (100%)`
+- **Total Combined Tests**: `143 / 143 (100% Green)`
+- **Quality & Security Sign-Off**: **APPROVED / SIGNED OFF**
+
+---
+
+*(Phase 5 will be appended below upon initiation)*
+
 
 

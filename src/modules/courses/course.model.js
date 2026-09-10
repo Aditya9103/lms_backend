@@ -32,8 +32,17 @@ const lectureSchema = new Schema({
 const questionSchema = new Schema({
   type: {
     type: String,
-    enum: ['single', 'multiple', 'truefalse', 'short'],
+    enum: ['single', 'multiple', 'truefalse', 'short', 'MCQ', 'TRUE_FALSE', 'MULTI_SELECT', 'SHORT_ANSWER'],
     default: 'single',
+    set: (v) => {
+      const map = {
+        MCQ: 'single',
+        TRUE_FALSE: 'truefalse',
+        MULTI_SELECT: 'multiple',
+        SHORT_ANSWER: 'short',
+      };
+      return map[v] || v;
+    },
   },
   question: { type: String, required: true },
   options: [String],              // not used for 'short'

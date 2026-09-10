@@ -33,13 +33,15 @@ export const AddSectionDto = z.object({
   }).optional(),
 });
 
-/** POST /api/v1/courses/:id/sections/:sectionId/lectures */
+/** POST /api/v1/courses/:id/sections/:sectionId/lectures and POST /courses/:id */
 export const AddLectureDto = z.object({
   title: z.string().min(2, 'Lecture title must be at least 2 characters').max(200).trim(),
   description: z.string().max(2000).trim().optional(),
   duration: z.coerce.number().min(0).optional(),
-  cloudinaryPublicId: z.string().min(1, 'Cloudinary public_id is required'),
-  cloudinarySecureUrl: z.string().url('Must be a valid Cloudinary URL'),
+  cloudinaryPublicId: z.string().min(1).optional(),
+  cloudinarySecureUrl: z.string().url('Must be a valid Cloudinary URL').optional(),
+  public_id: z.string().min(1).optional(),
+  secure_url: z.string().optional(),
 });
 
 /** POST /api/v1/courses/:id/sections/:sectionId/quizzes */
@@ -51,7 +53,9 @@ export const AddQuizDto = z.object({
   questions: z.array(
     z.object({
       question: z.string().min(1, 'Question text is required').trim(),
-      type: z.enum(['MCQ', 'TRUE_FALSE', 'MULTI_SELECT', 'SHORT_ANSWER']).default('MCQ'),
+      type: z
+        .enum(['MCQ', 'TRUE_FALSE', 'MULTI_SELECT', 'SHORT_ANSWER', 'single', 'multiple', 'truefalse', 'short'])
+        .default('MCQ'),
       options: z.array(z.string()).min(2).optional(),
       answer: z.union([z.number(), z.array(z.number())]).optional(),
     })

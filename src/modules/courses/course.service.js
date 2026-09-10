@@ -33,11 +33,14 @@ class CourseService {
           course.thumbnail.public_id = result.public_id;
           course.thumbnail.secure_url = result.secure_url;
         }
-        if (file.filename) {
-          try { await fs.rm(`uploads/${file.filename}`); } catch {}
-        }
       } catch (error) {
-        throw new AppError(JSON.stringify(error) || 'File not uploaded, please try again', 400);
+        throw new AppError(error.message || 'File not uploaded, please try again', 400);
+      } finally {
+        try {
+          if (file.filename) await fs.rm(`uploads/${file.filename}`, { force: true });
+        } catch (_) {
+          try { await fs.unlink(file.path); } catch (_) {}
+        }
       }
     }
     await courseRepository.save(course);
@@ -81,11 +84,14 @@ class CourseService {
           lectureData.public_id = result.public_id;
           lectureData.secure_url = result.secure_url;
         }
-        if (file.filename) {
-          try { await fs.rm(`uploads/${file.filename}`); } catch {}
-        }
       } catch (error) {
-        throw new AppError(JSON.stringify(error) || 'File not uploaded, please try again', 400);
+        throw new AppError(error.message || 'File not uploaded, please try again', 400);
+      } finally {
+        try {
+          if (file.filename) await fs.rm(`uploads/${file.filename}`, { force: true });
+        } catch (_) {
+          try { await fs.unlink(file.path); } catch (_) {}
+        }
       }
     }
 
@@ -105,10 +111,14 @@ class CourseService {
 
     if (lectureIndex === -1) throw new AppError('Lecture does not exist.', 404);
 
-    await cloudinary.v2.uploader.destroy(
-      course.lectures[lectureIndex].lecture.public_id,
-      { resource_type: 'video' }
-    );
+    if (course.lectures[lectureIndex]?.lecture?.public_id) {
+      try {
+        await cloudinary.v2.uploader.destroy(
+          course.lectures[lectureIndex].lecture.public_id,
+          { resource_type: 'video' }
+        );
+      } catch (_) {}
+    }
 
     course.lectures.splice(lectureIndex, 1);
     course.numberOfLectures = course.lectures.length;
@@ -193,12 +203,15 @@ class CourseService {
         if (result) {
           fileData = { public_id: result.public_id, secure_url: result.secure_url };
         }
-        if (file.filename) {
-          try { await fs.rm(`uploads/${file.filename}`); } catch {}
-        }
       } catch (error) {
         console.error("Cloudinary upload error:", error);
-        throw new AppError('File upload failed', 500);
+        throw new AppError(error.message || 'File upload failed', 500);
+      } finally {
+        try {
+          if (file.filename) await fs.rm(`uploads/${file.filename}`, { force: true });
+        } catch (_) {
+          try { await fs.unlink(file.path); } catch (_) {}
+        }
       }
     }
 
