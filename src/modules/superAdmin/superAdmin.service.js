@@ -11,6 +11,10 @@ class SuperAdminService {
   }
 
   async updateRole(adminId, targetUserId, role, permissions, req) {
+    if (targetUserId.toString() === adminId.toString() && role !== 'SUPER_ADMIN') {
+      throw new AppError('SuperAdmin cannot demote themselves', 400);
+    }
+
     const user = await superAdminRepository.findUserById(targetUserId);
     if (!user) throw new AppError('User not found', 404);
 
@@ -34,6 +38,10 @@ class SuperAdminService {
   }
 
   async createAdmin(adminId, fullName, email, password, permissions, req) {
+    if (!password || password.length < 8) {
+      throw new AppError('Password must be at least 8 characters long', 400);
+    }
+
     const existingUser = await superAdminRepository.findUserByEmail(email);
     if (existingUser) throw new AppError('Email already in use', 400);
 
@@ -64,15 +72,19 @@ class SuperAdminService {
   }
 
   async requestLogDeletion(days = 90) {
+    const numDays = Math.max(1, Number(days) || 90);
     const dateLimit = new Date();
-    dateLimit.setDate(dateLimit.getDate() - days);
+    dateLimit.setDate(dateLimit.getDate() - numDays);
     const count = await superAdminRepository.countOldLogs(dateLimit);
-    return { count, dateLimit, days };
+    return { count, dateLimit, days: numDays };
   }
 
   async executeLogDeletion(adminId, dateLimit, req) {
     if (!dateLimit) throw new AppError('Date limit is required to delete logs', 400);
     const parsedDate = new Date(dateLimit);
+    if (isNaN(parsedDate.getTime())) {
+      throw new AppError('Invalid date limit provided', 400);
+    }
     const result = await superAdminRepository.deleteOldLogs(parsedDate);
 
     await logActivity({

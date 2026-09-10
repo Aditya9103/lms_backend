@@ -1,30 +1,19 @@
 import asyncHandler from '../../core/middlewares/asyncHandler.middleware.js';
 import superAdminService from './superAdmin.service.js';
 import AppError from '../../core/utils/AppError.js';
+import { sendSuccess } from '../../core/utils/apiResponse.js';
 
-export const getAllUsersAndAdmins = asyncHandler(async (req, res, next) => {
-  try {
-    const users = await superAdminService.getAllUsersAndAdmins();
-    res.status(200).json({ success: true, users });
-  } catch (error) {
-    return next(error);
-  }
+export const getAllUsersAndAdmins = asyncHandler(async (_req, res) => {
+  const users = await superAdminService.getAllUsersAndAdmins();
+  return sendSuccess(res, { users }, 200);
 });
 
-export const updateRole = asyncHandler(async (req, res, next) => {
+export const updateRole = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { role, permissions } = req.body;
 
-  try {
-    const user = await superAdminService.updateRole(req.user.id, id, role, permissions, req);
-    res.status(200).json({
-      success: true,
-      message: 'User role updated successfully',
-      user,
-    });
-  } catch (error) {
-    return next(error);
-  }
+  const user = await superAdminService.updateRole(req.user.id, id, role, permissions, req);
+  return sendSuccess(res, { user }, 200, 'User role updated successfully');
 });
 
 export const createAdmin = asyncHandler(async (req, res, next) => {
@@ -33,68 +22,38 @@ export const createAdmin = asyncHandler(async (req, res, next) => {
     return next(new AppError('Full name, email, and password are required', 400));
   }
 
-  try {
-    const admin = await superAdminService.createAdmin(req.user.id, fullName, email, password, permissions, req);
-    res.status(201).json({
-      success: true,
-      message: 'Admin created successfully',
-      admin,
-    });
-  } catch (error) {
-    return next(error);
-  }
+  const admin = await superAdminService.createAdmin(req.user.id, fullName, email, password, permissions, req);
+  return sendSuccess(res, { admin }, 201, 'Admin created successfully');
 });
 
-export const getActivities = asyncHandler(async (req, res, next) => {
-  try {
-    const logs = await superAdminService.getActivities();
-    res.status(200).json({ success: true, logs });
-  } catch (error) {
-    return next(error);
-  }
+export const getActivities = asyncHandler(async (_req, res) => {
+  const logs = await superAdminService.getActivities();
+  return sendSuccess(res, { logs }, 200);
 });
 
-export const requestLogDeletion = asyncHandler(async (req, res, next) => {
+export const requestLogDeletion = asyncHandler(async (req, res) => {
   const { days } = req.body;
-  try {
-    const data = await superAdminService.requestLogDeletion(days);
-    res.status(200).json({
-      success: true,
-      message: `Found ${data.count} logs older than ${data.days || 90} days ready for deletion.`,
-      ...data,
-    });
-  } catch (error) {
-    return next(error);
-  }
+  const data = await superAdminService.requestLogDeletion(days);
+  return sendSuccess(
+    res,
+    data,
+    200,
+    `Found ${data.count} logs older than ${data.days || 90} days ready for deletion.`
+  );
 });
 
-export const executeLogDeletion = asyncHandler(async (req, res, next) => {
+export const executeLogDeletion = asyncHandler(async (req, res) => {
   const { dateLimit } = req.body;
-  try {
-    const count = await superAdminService.executeLogDeletion(req.user.id, dateLimit, req);
-    res.status(200).json({
-      success: true,
-      message: `Successfully deleted ${count} logs.`,
-    });
-  } catch (error) {
-    return next(error);
-  }
+  const count = await superAdminService.executeLogDeletion(req.user.id, dateLimit, req);
+  return sendSuccess(res, { deletedCount: count }, 200, `Successfully deleted ${count} logs.`);
 });
 
-export const getSystemHealth = asyncHandler(async (req, res, next) => {
-  try {
-    const health = await superAdminService.getSystemHealth();
-    res.status(200).json({ success: true, health });
-  } catch (error) {
-    return next(error);
-  }
+export const getSystemHealth = asyncHandler(async (_req, res) => {
+  const health = await superAdminService.getSystemHealth();
+  return sendSuccess(res, { health }, 200);
 });
 
-export const getDashboardStats = asyncHandler(async (req, res, next) => {
-  try {
-    const stats = await superAdminService.getDashboardStats();
-    res.status(200).json({ success: true, stats });
-  } catch (error) {
-    return next(error);
-  }
+export const getDashboardStats = asyncHandler(async (_req, res) => {
+  const stats = await superAdminService.getDashboardStats();
+  return sendSuccess(res, { stats }, 200);
 });

@@ -13,8 +13,10 @@ class DashboardService {
     const continueLearning = user.recentlyWatched.length > 0 ? user.recentlyWatched[0] : null;
 
     const upcomingDeadlines = [];
-    for (const prog of user.progress) {
-      const course = await courseRepository.findById(prog.courseId);
+    for (const prog of (user.progress || [])) {
+      const courseId = prog.courseId?._id || prog.courseId;
+      if (!courseId) continue;
+      const course = await courseRepository.findById(courseId);
       if (course && course.sections) {
         course.sections.forEach(section => {
           section.quizzes?.forEach(quiz => {
@@ -45,11 +47,12 @@ class DashboardService {
     upcomingDeadlines.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 
     const recommendedNextLessons = [];
-    if (continueLearning) {
-      const course = await courseRepository.findById(continueLearning.courseId);
-      if (course) {
+    if (continueLearning && continueLearning.courseId) {
+      const courseId = continueLearning.courseId?._id || continueLearning.courseId;
+      const course = await courseRepository.findById(courseId);
+      if (course && course.lectures && continueLearning.lectureId) {
         const currentLectureIndex = course.lectures.findIndex(
-          l => l._id.toString() === continueLearning.lectureId.toString()
+          l => l._id?.toString() === continueLearning.lectureId?.toString()
         );
         if (currentLectureIndex !== -1 && currentLectureIndex < course.lectures.length - 1) {
           recommendedNextLessons.push({
@@ -64,26 +67,29 @@ class DashboardService {
 
     let totalLectures = 0;
     let completedLecturesCount = 0;
-    user.progress.forEach(p => {
-      if (p.courseId) {
-        totalLectures += p.courseId.numberOfLectures || 0;
-        completedLecturesCount += p.completedLectures.length;
-      }
+    (user.progress || []).forEach(p => {
+      const numLectures = p.courseId?.numberOfLectures || 0;
+      totalLectures += numLectures;
+      completedLecturesCount += (p.completedLectures || []).length;
     });
     const overallProgress = totalLectures > 0 ? Math.round((completedLecturesCount / totalLectures) * 100) : 0;
 
     const weakTopics = user.weakTopics || [];
-    const recentlyWatched = user.recentlyWatched;
+    const recentlyWatched = user.recentlyWatched || [];
 
     let estimatedCompletionTime = 0;
     let sectionMastery = [];
-    if (continueLearning) {
-      const course = await courseRepository.findById(continueLearning.courseId);
+    if (continueLearning && continueLearning.courseId) {
+      const courseId = continueLearning.courseId?._id || continueLearning.courseId;
+      const course = await courseRepository.findById(courseId);
       if (course && course.sections) {
-        const userCourseProgress = user.progress.find(p => p.courseId._id.toString() === course._id.toString());
-        const completedLectures = userCourseProgress ? userCourseProgress.completedLectures.map(id => id.toString()) : [];
-        const completedQuizzes = userCourseProgress ? userCourseProgress.completedQuizzes.map(q => q.quizId.toString()) : [];
-        const completedAssignments = userCourseProgress ? userCourseProgress.completedAssignments.map(a => a.assignmentId.toString()) : [];
+        const userCourseProgress = (user.progress || []).find(p => {
+          const pId = p.courseId?._id ? p.courseId._id.toString() : p.courseId?.toString();
+          return pId === course._id.toString();
+        });
+        const completedLectures = userCourseProgress ? (userCourseProgress.completedLectures || []).map(id => id?.toString()).filter(Boolean) : [];
+        const completedQuizzes = userCourseProgress ? (userCourseProgress.completedQuizzes || []).map(q => q.quizId?.toString()).filter(Boolean) : [];
+        const completedAssignments = userCourseProgress ? (userCourseProgress.completedAssignments || []).map(a => a.assignmentId?.toString()).filter(Boolean) : [];
 
         course.sections.forEach(section => {
           let sectionTotalItems = (section.lectures?.length || 0) + (section.quizzes?.length || 0) + (section.assignments?.length || 0);
