@@ -18,7 +18,7 @@
 | **Phase 5** | Payment Gateway, Webhook Idempotency & Invoicing | ✅ 168 / 168 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 6** | Real-Time Discussions, WebSockets & AI Copilot | ✅ 188 / 188 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 7** | SuperAdmin Multi-Tenant Operations & System Audits | ✅ 216 / 216 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
-| **Phase 8** | Background Workers, Dead Letter Queues & Cron | ⏳ Pending | ⏳ Pending | - | Pending |
+| **Phase 8** | Background Workers, Dead Letter Queues & Cron | ✅ 230 / 230 Passed (100%) | ✅ Verified | 7 Found / 7 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 9** | End-to-End User Journeys (Frontend + Backend) | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 10**| Pre-Production Deployment, Docker & Final Audit | ⏳ Pending | ⏳ Pending | - | Pending |
 
@@ -857,7 +857,112 @@ Automated backend suite [`phase7.superAdminAndAudits.test.js`](file:///Users/abh
 - **Total Combined Tests**: `216 / 216 (100% Green)`
 - **Quality & Security Sign-Off**: **APPROVED / SIGNED OFF**
 
+# Phase 8: Background Workers, Dead Letter Queues & Cron
+
+- **Target Endpoints / Subsystems**:
+  - Standalone Worker Process (`src/worker.js` & `Dockerfile.worker`)
+  - BullMQ Queue Infrastructure (`src/core/queue/queues.js`)
+  - Email Worker Queue (`email-queue`, `enqueueEmail`, `processEmailJob`)
+  - Notification Worker Queue (`notification-queue`, `enqueueNotification`, `createNotification`)
+  - Maintenance Worker (`maintenance-queue`, `token-cleanup`, `log-cleanup`)
+  - Dead Letter Queue (`dead-letter-queue`, `sendToDeadLetterQueue`, `deadLetterWorker`)
+  - BullMQ Repeatable Cron Scheduler (`scheduleCronJobs`)
+  - Frontend System Monitoring & Audit Log Telemetry (`SystemMonitoring.jsx`, `ActivityLogs.jsx`, `SuperAdminDashboard.jsx`, `UserManagement.jsx`, `AdminManagement.jsx`)
+
 ---
 
-*(Phase 8 will be appended below upon initiation)*
+### 🧪 Iteration Loop 1: Initial Test Execution & Defect Audit
+
+Automated backend test suite [`phase8.backgroundWorkersAndCron.test.js`](file:///Users/abhimanyukumar/code/wd/project/lms_backend/src/core/__tests__/phase8.backgroundWorkersAndCron.test.js) and frontend test suite [`phase8.systemMonitoringAndAuditLogs.test.jsx`](file:///Users/abhimanyukumar/code/wd/project/frontend/src/features/superAdmin/__tests__/phase8.systemMonitoringAndAuditLogs.test.jsx) were executed. 7 defects were catalogued.
+
+#### Defect Register (Loop 1)
+
+| Defect ID | Severity | Category | Target File | Description & Root Cause |
+|---|---|---|---|---|
+| **DEF-08-001** | **CRITICAL** | Reliability / Unhandled Model Resolution | `src/worker.js` | **Root Cause**: `worker.js` called `mongoose.model('User')` during `token-cleanup` without importing `user.model.js`.<br>**Risk**: In standalone worker mode (`node src/worker.js`), worker immediately crashed with `MissingSchemaError: Schema hasn't been registered for model "User"`. |
+| **DEF-08-002** | **CRITICAL** | API Contract / Missing Method | `src/worker.js`<br>`src/modules/notifications/notification.service.js` | **Root Cause**: `worker.js` called `notificationService.createNotification(userId, type, title, message, metadata, link)`, but `notificationService` had no `createNotification` method.<br>**Risk**: Any background notification job enqueued to `notificationQueue` immediately threw `TypeError: notificationService.createNotification is not a function`. |
+| **DEF-08-003** | **HIGH** | Reliability / Unbounded Data Accumulation | `src/worker.js` | **Root Cause**: `maintenanceWorker` lacked an automated task to purge stale activity logs beyond the retention policy threshold.<br>**Risk**: Activity logs grew unbounded indefinitely, bloating database storage and degrading index lookups. |
+| **DEF-08-004** | **HIGH** | Observability / Message Loss | `src/core/queue/queues.js`<br>`src/worker.js` | **Root Cause**: Exhausted failed jobs (after 3 exponential retries) had no Dead Letter Queue (DLQ) destination.<br>**Risk**: Permanently failed jobs were lost without error telemetry or admin inspection capabilities. |
+| **DEF-08-005** | **HIGH** | Frontend UI / Contract Deserialization | `frontend/src/features/superAdmin/pages/*.jsx` | **Root Cause**: `SystemMonitoring.jsx`, `SuperAdminDashboard.jsx`, `ActivityLogs.jsx`, `UserManagement.jsx`, and `AdminManagement.jsx` expected flat responses (e.g. `response.data.health`), causing undefined states when standard `response.data.data` envelopes were returned.<br>**Risk**: SuperAdmin UI pages remained in perpetual "Loading..." state or showed empty tables. |
+| **DEF-08-006** | **MEDIUM** | Automation / Missing Scheduling | `src/worker.js` | **Root Cause**: Maintenance tasks (`token-cleanup`, `log-cleanup`) were implemented but never scheduled as repeatable cron jobs.<br>**Risk**: Pruning jobs never ran automatically in production unless manually triggered. |
+| **DEF-08-007** | **MEDIUM** | Performance / Synchronous HTTP Blocking | `src/modules/users/user.service.js`<br>`src/modules/miscellaneous/miscellaneous.controller.js` | **Root Cause**: Auth flows and contact forms called `sendEmail` synchronously, blocking HTTP response threads while waiting on SMTP network roundtrips.<br>**Risk**: High response latency and request timeouts during transient SMTP lag. |
+
+---
+
+### 🛠️ Remediation & Code Fix Verification
+
+1. **Explicit Mongoose Model Registration (`DEF-08-001`)**:
+   - Explicitly imported `user.model.js`, `activityLog.model.js`, and `notification.model.js` at the root of `src/worker.js`.
+2. **Notification Service Compatibility Layer (`DEF-08-002`)**:
+   - Implemented `createNotification(userId, type, title, message, metadata, link)` in `notification.service.js` which maps title and link into metadata and dispatches through `notifyUser`.
+3. **Log Retention Maintenance Task (`DEF-08-003`)**:
+   - Implemented `log-cleanup` job handler in `maintenanceWorker` computing the retention cutoff (default 90 days) and deleting stale logs via `ActivityLog.deleteMany({ createdAt: { $lt: cutoffDate } })`.
+4. **Dead Letter Queue (DLQ) Infrastructure (`DEF-08-004`)**:
+   - Added `QUEUE_NAMES.DEAD_LETTER = 'dead-letter-queue'` and `deadLetterQueue` in `queues.js`.
+   - Created `sendToDeadLetterQueue(queueName, job, error)` to record failed job ID, attempts, payload, stack trace, and timestamp.
+   - Registered `deadLetterWorker` in `worker.js` for dead-letter persistence and observability.
+5. **Defensive Frontend Dual-Format Response Handling (`DEF-08-005`)**:
+   - Updated `SystemMonitoring.jsx`, `SuperAdminDashboard.jsx`, `ActivityLogs.jsx`, `UserManagement.jsx`, and `AdminManagement.jsx` to safely accept both `response.data.data.<prop>` and `response.data.<prop>`.
+6. **Repeatable Cron Scheduling (`DEF-08-006`)**:
+   - Added `scheduleCronJobs()` in `worker.js` to register daily cron jobs (`0 2 * * *` for `token-cleanup` and `0 3 * * *` for `log-cleanup`).
+7. **Asynchronous Email Dispatch with Direct Fallback (`DEF-08-007`)**:
+   - Created `enqueueEmail` helper with BullMQ queue dispatch and automatic synchronous fallback, and updated `user.service.js` and `miscellaneous.controller.js`.
+
+---
+
+### 📊 Comprehensive Verification Matrix (Phase 8)
+
+| Component / Subsystem | Test Scenario | Expected Outcome | Actual Outcome | Result |
+|---|---|---|---|---|
+| `queues.js` | Queue definitions check | All 4 queues defined (`EMAIL`, `NOTIFICATION`, `MAINTENANCE`, `DEAD_LETTER`) | Verified | ✅ Passed |
+| `enqueueEmail` | Enqueue email with fallback | Job enqueued or direct delivery without throwing | Verified | ✅ Passed |
+| `enqueueNotification` | Enqueue notification | Job enqueued or direct delivery without throwing | Verified | ✅ Passed |
+| `emailWorker` | Process email job | Triggers `sendEmail` with correct recipient, subject, and HTML body | Verified | ✅ Passed |
+| `notificationWorker` | Process notification job (DEF-08-002) | `createNotification` creates and persists notification record in DB | Verified | ✅ Passed |
+| `maintenanceWorker` | `token-cleanup` task (DEF-08-001) | Prunes expired refresh tokens, preserves valid tokens, 0 Schema errors | Verified | ✅ Passed |
+| `maintenanceWorker` | `log-cleanup` task (DEF-08-003) | Prunes logs older than 90 days, preserves fresh logs | Verified | ✅ Passed |
+| `deadLetterWorker` | DLQ routing & capture (DEF-08-004) | Failed job routed to DLQ with error stack, reason, and original queue | Verified | ✅ Passed |
+| `scheduleCronJobs` | Repeatable cron registration (DEF-08-006) | Repeatable cron patterns configured (`0 2 * * *`, `0 3 * * *`) | Verified | ✅ Passed |
+| Frontend `SystemMonitoring` | Render system health (DEF-08-005) | Displays uptime, memory, CPU, and DB state from dual-format envelope | Verified | ✅ Passed |
+| Frontend `ActivityLogs` | Render & filter logs (DEF-08-005) | Renders timeline, switches tabs (engagement/audit), filters search query | Verified | ✅ Passed |
+
+---
+
+### 💻 Frontend Parallel Test & Build Verification
+
+```bash
+ RUN  v3.2.7 /Users/abhimanyukumar/code/wd/project/frontend
+
+ ✓ src/features/superAdmin/__tests__/phase7.superAdminAndDashboard.test.jsx (14 tests)
+ ✓ src/features/payments/__tests__/phase5.payments.test.jsx (12 tests)
+ ✓ src/features/auth/__tests__/tokenStoreAndAuthSlice.test.js (9 tests)
+ ✓ src/features/auth/__tests__/RequireAuth.test.jsx (7 tests)
+ ✓ src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx (6 tests)
+ ✓ src/features/users/__tests__/phase3.profileAndProgress.test.jsx (7 tests)
+ ✓ src/features/superAdmin/__tests__/phase8.systemMonitoringAndAuditLogs.test.jsx (4 tests)
+ ✓ src/shared/utils/__tests__/hasPermission.test.js (13 tests)
+ ✓ src/features/courses/__tests__/phase6.discussionsAndNotifications.test.jsx (9 tests)
+ ✓ src/shared/utils/__tests__/apiError.test.js (10 tests)
+
+ Test Files  10 passed (10)
+      Tests  91 passed (91) (100% pass rate)
+```
+
+- **Vite Production Build**: 3,186 modules compiled cleanly with 0 errors in 14.16s (`dist/` verified).
+
+---
+
+### 🏁 Phase 8 Quality Gate Sign-Off
+
+- **Open Backend Defects**: `0`
+- **Open Frontend Defects**: `0`
+- **Backend Tests Passing**: `139 / 139 (100%)` across 11 test suites
+- **Frontend Tests Passing**: `91 / 91 (100%)` across 10 test suites
+- **Total Combined Tests**: `230 / 230 (100% Green)`
+- **Quality & Security Sign-Off**: **APPROVED / SIGNED OFF**
+
+---
+
+*(Phase 9 will be appended below upon initiation)*
+
 

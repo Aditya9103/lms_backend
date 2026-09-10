@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { OAuth2Client } from 'google-auth-library';
 import userRepository from './user.repository.js';
-import sendEmail from '../../core/utils/sendEmail.js';
+import { enqueueEmail } from '../../core/queue/queues.js';
 import AppError from '../../core/utils/AppError.js';
 import config from '../../core/config/env.js';
 import {
@@ -152,7 +152,7 @@ class UserService {
     const message = `You can reset your password by clicking <a href=${resetPasswordUrl} target="_blank">Reset your password</a>\nIf the above link does not work for some reason then copy paste this link in new tab ${resetPasswordUrl}.\n If you have not requested this, kindly ignore.`;
 
     try {
-      await sendEmail(email, subject, message);
+      await enqueueEmail(email, subject, message);
     } catch (error) {
       user.forgotPasswordToken = undefined;
       user.forgotPasswordExpiry = undefined;
@@ -463,7 +463,7 @@ class UserService {
       <p>Your code is: <strong>${otp}</strong></p>
       <p>This code will expire in 10 minutes.</p>
     `;
-    await sendEmail(email, subject, message);
+    await enqueueEmail(email, subject, message);
   }
 
   async otpSignup(fullName, email, password, file) {

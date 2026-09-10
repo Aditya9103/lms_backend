@@ -41,6 +41,16 @@ class NotificationService {
   }
 
   /**
+   * Compatibility alias for background workers & legacy queue jobs
+   */
+  async createNotification(userId, type, title, message, metadata = {}, link = null) {
+    const combinedMeta = { ...metadata };
+    if (title) combinedMeta.title = title;
+    if (link) combinedMeta.link = link;
+    return this.notifyUser(userId, { type, message, metadata: combinedMeta });
+  }
+
+  /**
    * Create a notification for all users of a given role (ADMIN, SUPER_ADMIN).
    */
   async notifyRole(role, { type, message, metadata = {} }) {

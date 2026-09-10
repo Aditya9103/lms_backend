@@ -1,7 +1,7 @@
 import asyncHandler from '../../core/middlewares/asyncHandler.middleware.js';
 import userService from '../users/user.service.js';
 import AppError from '../../core/utils/AppError.js';
-import sendEmail from '../../core/utils/sendEmail.js';
+import { enqueueEmail } from '../../core/queue/queues.js';
 import { sendSuccess } from '../../core/utils/apiResponse.js';
 
 export const contactUs = asyncHandler(async (req, res, next) => {
@@ -14,7 +14,7 @@ export const contactUs = asyncHandler(async (req, res, next) => {
   try {
     const subject = 'Contact Us Form';
     const textMessage = `${name} - ${email} <br /> ${message}`;
-    await sendEmail(process.env.CONTACT_US_EMAIL, subject, textMessage);
+    await enqueueEmail(process.env.CONTACT_US_EMAIL, subject, textMessage);
   } catch (error) {
     return next(new AppError(error.message, 400));
   }

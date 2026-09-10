@@ -11,16 +11,30 @@ import mongoose from 'mongoose';
 jest.mock('../../core/cache/redis.js', () => {
   const mockRedisClient = {
     status: 'ready',
+    options: { keyPrefix: '', lazyConnect: true },
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue('OK'),
     setex: jest.fn().mockResolvedValue('OK'),
     del: jest.fn().mockResolvedValue(1),
     scan: jest.fn().mockResolvedValue(['0', []]),
-    on: jest.fn(),
-    once: jest.fn(),
+    on: jest.fn().mockReturnThis(),
+    once: jest.fn().mockReturnThis(),
+    emit: jest.fn(),
+    removeListener: jest.fn().mockReturnThis(),
+    addListener: jest.fn().mockReturnThis(),
+    off: jest.fn().mockReturnThis(),
+    getMaxListeners: jest.fn().mockReturnValue(20),
+    setMaxListeners: jest.fn().mockReturnThis(),
+    listenerCount: jest.fn().mockReturnValue(0),
+    listeners: jest.fn().mockReturnValue([]),
+    rawListeners: jest.fn().mockReturnValue([]),
+    eventNames: jest.fn().mockReturnValue([]),
     connect: jest.fn().mockResolvedValue(true),
     disconnect: jest.fn().mockResolvedValue(true),
     quit: jest.fn().mockResolvedValue(true),
+    defineCommand: jest.fn(),
+    info: jest.fn().mockResolvedValue('redis_version:7.0.0'),
+    client: jest.fn().mockResolvedValue('OK'),
     call: jest.fn().mockImplementation((cmd, ...args) => {
       const command = (cmd || '').toUpperCase();
       if (command === 'SCRIPT') {
