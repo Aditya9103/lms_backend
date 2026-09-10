@@ -26,7 +26,7 @@ import { sendSuccess } from '../../core/utils/apiResponse.js';
  */
 const sendAuthResponse = (res, { user, token, rawRefreshToken }, status = 200) => {
   if (rawRefreshToken) setRefreshTokenCookie(res, rawRefreshToken);
-  return sendSuccess(res, { accessToken: token, user }, status);
+  return sendSuccess(res, { accessToken: token, token, user }, status);
 };
 
 // ── Registration ──────────────────────────────────────────────────────────────
