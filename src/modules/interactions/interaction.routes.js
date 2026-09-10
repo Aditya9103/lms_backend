@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
     toggleBookmark, 
     getBookmarks, 
+    deleteBookmark,
     addNote, 
     getNotes, 
     deleteNote 
@@ -14,6 +15,7 @@ router.use(isLoggedIn);
 
 router.route('/bookmark').post(toggleBookmark);
 router.route('/bookmark/:courseId').get(getBookmarks);
+router.route('/bookmark/:bookmarkId').delete(deleteBookmark);
 
 router.route('/note').post(addNote);
 router.route('/note/:courseId').get(getNotes);

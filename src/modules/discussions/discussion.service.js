@@ -1,6 +1,7 @@
 import discussionRepository from './discussion.repository.js';
 import userRepository from '../users/user.repository.js';
 import AppError from '../../core/utils/AppError.js';
+import { getIo } from '../../core/socket/socket.js';
 
 /**
  * DiscussionService — Phase 6 + Phase 9 extended
@@ -15,7 +16,7 @@ class DiscussionService {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
-    return await discussionRepository.createDiscussion({
+    const discussion = await discussionRepository.createDiscussion({
       courseId,
       lectureId,
       userId,
@@ -24,6 +25,16 @@ class DiscussionService {
       question,
       timestamp,
     });
+
+    try {
+      const io = getIo();
+      if (io) {
+        io.to(`lecture:${lectureId}`).emit('discussion:new', discussion);
+        io.to(`course:${courseId}`).emit('discussion:new', discussion);
+      }
+    } catch (_) {}
+
+    return discussion;
   }
 
   async addReply(userId, discussionId, reply) {
@@ -40,7 +51,17 @@ class DiscussionService {
       reply,
     });
 
-    return await discussionRepository.save(discussion);
+    const saved = await discussionRepository.save(discussion);
+
+    try {
+      const io = getIo();
+      if (io) {
+        io.to(`lecture:${saved.lectureId}`).emit('discussion:update', saved);
+        io.to(`course:${saved.courseId}`).emit('discussion:update', saved);
+      }
+    } catch (_) {}
+
+    return saved;
   }
 
   /**
@@ -64,17 +85,39 @@ class DiscussionService {
       (id) => id.toString() === userId.toString()
     );
 
+    let updated;
     if (alreadyUpvoted) {
-      return await discussionRepository.unvote(discussionId, userId);
+      updated = await discussionRepository.unvote(discussionId, userId);
+    } else {
+      updated = await discussionRepository.upvote(discussionId, userId);
     }
-    return await discussionRepository.upvote(discussionId, userId);
+
+    try {
+      const io = getIo();
+      if (io && updated) {
+        io.to(`lecture:${updated.lectureId}`).emit('discussion:update', updated);
+        io.to(`course:${updated.courseId}`).emit('discussion:update', updated);
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   // ── Phase 6: resolve (mark answered) ───────────────────────────────────────
   async markAnswered(userId, discussionId) {
     const discussion = await discussionRepository.findDiscussionById(discussionId);
     if (!discussion) throw new AppError('Discussion not found', 404);
-    return await discussionRepository.resolve(discussionId, userId);
+    const updated = await discussionRepository.resolve(discussionId, userId);
+
+    try {
+      const io = getIo();
+      if (io && updated) {
+        io.to(`lecture:${updated.lectureId}`).emit('discussion:update', updated);
+        io.to(`course:${updated.courseId}`).emit('discussion:update', updated);
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   // ── Phase 9: flag / report ──────────────────────────────────────────────────
@@ -94,13 +137,31 @@ class DiscussionService {
   async hideDiscussion(discussionId) {
     const discussion = await discussionRepository.findDiscussionById(discussionId);
     if (!discussion) throw new AppError('Discussion not found', 404);
-    return await discussionRepository.hide(discussionId);
+    const updated = await discussionRepository.hide(discussionId);
+
+    try {
+      const io = getIo();
+      if (io && updated) {
+        io.to(`lecture:${updated.lectureId}`).emit('discussion:update', updated);
+      }
+    } catch (_) {}
+
+    return updated;
   }
 
   async unhideDiscussion(discussionId) {
     const discussion = await discussionRepository.findDiscussionById(discussionId);
     if (!discussion) throw new AppError('Discussion not found', 404);
-    return await discussionRepository.unhide(discussionId);
+    const updated = await discussionRepository.unhide(discussionId);
+
+    try {
+      const io = getIo();
+      if (io && updated) {
+        io.to(`lecture:${updated.lectureId}`).emit('discussion:update', updated);
+      }
+    } catch (_) {}
+
+    return updated;
   }
 }
 

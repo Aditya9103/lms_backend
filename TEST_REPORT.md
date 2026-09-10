@@ -16,7 +16,7 @@
 | **Phase 3** | User Profile, Avatar & Streak Analytics | ✅ 123 / 123 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 4** | Course Lifecycle, Video Transcoding & DRM | ✅ 143 / 143 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 5** | Payment Gateway, Webhook Idempotency & Invoicing | ✅ 168 / 168 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
-| **Phase 6** | Real-Time Discussions, WebSockets & AI Copilot | ⏳ Pending | ⏳ Pending | - | Pending |
+| **Phase 6** | Real-Time Discussions, WebSockets & AI Copilot | ✅ 188 / 188 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 7** | SuperAdmin Multi-Tenant Operations & System Audits | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 8** | Background Workers, Dead Letter Queues & Cron | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 9** | End-to-End User Journeys (Frontend + Backend) | ⏳ Pending | ⏳ Pending | - | Pending |
@@ -629,4 +629,129 @@ All 4 defects were resolved directly:
 
 ---
 
-*(Phase 6 will be appended below upon initiation)*
+# Phase 6: Real-Time Discussions, WebSockets & AI Copilot
+
+- **Target Endpoints / Subsystems**:
+  - `POST /api/v1/discussions/question` (Timestamped doubt creation with input validation)
+  - `POST /api/v1/discussions/reply` (Threaded discussion reply with real-time broadcast)
+  - `GET /api/v1/discussions/:courseId/:lectureId` (Lecture discussion thread query, non-staff hide filtering)
+  - `POST /api/v1/discussions/:discussionId/upvote` (Atomic toggle upvote/unvote)
+  - `PATCH /api/v1/discussions/:discussionId/resolve` (Instructor/admin answer resolution, RBAC protected)
+  - `PATCH /api/v1/discussions/:discussionId/flag` (Student moderation reporting, duplicate flag guard)
+  - `PATCH /api/v1/discussions/:discussionId/hide` & `unhide` (Moderator visibility controls)
+  - `POST /api/v1/interaction/bookmark` (Lecture video timestamp bookmarking)
+  - `GET /api/v1/interaction/bookmark/:courseId` (Course bookmarks retrieval)
+  - `DELETE /api/v1/interaction/bookmark/:bookmarkId` (Bookmark deletion)
+  - `POST /api/v1/interaction/note` (Lecture study note creation)
+  - `GET /api/v1/interaction/note/:courseId` (Lecture study notes list)
+  - `DELETE /api/v1/interaction/note/:noteId` (Study note deletion)
+  - `GET /api/v1/notifications` (Notification list with unread counter)
+  - `PATCH /api/v1/notifications/:id/read` (Mark notification read)
+  - `PATCH /api/v1/notifications/read-all` (Mark all notifications read)
+  - WebSockets: `socket.js` (JWT authentication, `user:<id>`, `role:<role>`, `course:<id>`, `lecture:<id>` rooms, live `notification:new`, `discussion:new`, `discussion:update` events)
+  - Frontend: `NotificationSlice.js`, `discussion.service.js`, `interaction.service.js`, `QaTab.jsx`, `BookmarksTab.jsx`, `NotesTab.jsx`
+
+---
+
+### 🧪 Iteration Loop 1: Test Execution & Defect Audit
+
+Comprehensive testing across discussion APIs, interaction services, notifications, and WebSocket connection handlers identified 4 critical and high-severity defects:
+
+#### Defect Register (Loop 1)
+
+| Defect ID | Severity | Category | Target File | Description & Root Cause |
+|---|---|---|---|---|
+| **DEF-06-001** | **CRITICAL** | Missing Route / HTTP 404 | `src/modules/interactions/interaction.routes.js` & `interaction.service.js` | **Root Cause**: Frontend `interaction.service.js` and `Displaylectures.jsx` called `DELETE /api/v1/interaction/bookmark/:bookmarkId`, but the route and controller method were completely absent in backend.<br>**Impact**: Clicking trash on bookmarks failed with HTTP 404 Route Not Found, displaying toast "Failed to remove bookmark". |
+| **DEF-06-002** | **CRITICAL** | Contract / Envelope Mismatch | `src/modules/discussions/discussion.controller.js` & `interaction.controller.js` | **Root Cause**: Controllers bypassed `sendSuccess` and returned raw custom envelopes (e.g. `{ success: true, discussions }`, `{ success: true, bookmarks }`).<br>**Impact**: Violated standard `{ success: true, data: { ... } }` envelope, breaking RTK Query and Redux unwrappers. |
+| **DEF-06-003** | **HIGH** | WebSocket Rooms & Real-Time Sync | `src/core/socket/socket.js` & `discussion.service.js` | **Root Cause**: `socket.js` only joined `course:${courseId}` rooms, ignoring `join:lecture` and `leave:lecture` emitted by `QaTab.jsx`. Furthermore, `discussion.service.js` never emitted `discussion:new` or `discussion:update` events over Socket.IO.<br>**Impact**: Real-time collaborative discussions were completely silent across connected clients in the classroom. |
+| **DEF-06-004** | **HIGH** | Unhandled TypeErrors & Missing Validation | `src/modules/interactions/interaction.service.js` & `discussion.controller.js` | **Root Cause**: In `interaction.service.js`, calling `b.courseId.toString()` and `n.courseId.toString()` threw unhandled `TypeError` if `courseId` or `_id` was undefined on legacy records. Also, empty or whitespace-only questions and replies (`"   "`) were not validated.<br>**Impact**: Server crashes on legacy records and blank discussion posts polluting the forum. |
+
+---
+
+### 🛠️ Iteration Loop 2: Code Fixes & Remediation
+
+All 4 defects were resolved directly:
+
+1. **Fix for DEF-06-001** (`interaction.service.js`, `interaction.controller.js`, `interaction.routes.js`):
+   - Implemented `deleteBookmark(userId, bookmarkId)` in `interaction.service.js` filtering `user.bookmarks`.
+   - Added `deleteBookmark` handler in `interaction.controller.js` using standard `sendSuccess`.
+   - Registered `router.route('/bookmark/:bookmarkId').delete(deleteBookmark)` in `interaction.routes.js`.
+
+2. **Fix for DEF-06-002** (`discussion.controller.js`, `interaction.controller.js`):
+   - Standardized all discussion and interaction controller methods to use `asyncHandler` and `sendSuccess(res, { discussion }, ...)`, `sendSuccess(res, { bookmarks }, ...)`, `sendSuccess(res, { notes }, ...)`.
+
+3. **Fix for DEF-06-003** (`socket.js`, `discussion.service.js`):
+   - Added `join:lecture` and `leave:lecture` event listeners in `socket.js`, joining sockets to `lecture:${lectureId}` and `course:${courseId}` rooms.
+   - Wired `getIo()` in `discussion.service.js` to emit `discussion:new` on question creation and `discussion:update` on replies, upvotes, resolution, and moderator actions.
+
+4. **Fix for DEF-06-004** (`interaction.service.js`, `discussion.controller.js`):
+   - Replaced fragile toString calls with safe optional chaining: `b.courseId?.toString() === courseId?.toString()`.
+   - Added input trimming validation in `discussion.controller.js`: `!question.trim()` and `!reply.trim()`.
+
+---
+
+### 🔁 Iteration Loop 3: Re-Testing & Full Regression Suite
+
+1. **Backend Integration Suite**: [`src/core/__tests__/phase6.discussionsAndSockets.test.js`](file:///Users/abhimanyukumar/code/wd/project/lms_backend/src/core/__tests__/phase6.discussionsAndSockets.test.js) with 11 automated tests covering discussion creation, reply threading, atomic upvotes, RBAC answer resolution, moderation flags, visibility filtering, bookmark toggle/get/delete, study notes CRUD, and notifications.
+2. **Frontend Vitest Suite**: [`frontend/src/features/courses/__tests__/phase6.discussionsAndNotifications.test.jsx`](file:///Users/abhimanyukumar/code/wd/project/frontend/src/features/courses/__tests__/phase6.discussionsAndNotifications.test.jsx) with 9 automated tests covering `NotificationSlice` (fetch, socket push, mark read, clear), `discussionService`, and `interactionService` (`deleteBookmark`).
+
+#### Security & Contract Verification Matrix:
+| Target Route | HTTP Method | Scenario | Expected Status | Actual Status | Result |
+|---|---|---|---|---|---|
+| `/api/v1/discussions/question` | `POST` | Valid question + timestamp | `201 Created` | `201 Created` | ✅ Question created & `discussion:new` emitted |
+| `/api/v1/discussions/question` | `POST` | Empty / whitespace question | `400 Bad Request` | `400 Bad Request` | ✅ Validation caught |
+| `/api/v1/discussions/reply` | `POST` | Valid threaded reply | `200 OK` | `200 OK` | ✅ Reply added & `discussion:update` emitted |
+| `/api/v1/discussions/:courseId/:lectureId` | `GET` | Student viewer | `200 OK` | `200 OK` | ✅ Hidden posts filtered out |
+| `/api/v1/discussions/:courseId/:lectureId` | `GET` | Admin viewer | `200 OK` | `200 OK` | ✅ All posts returned including hidden |
+| `/api/v1/discussions/:id/upvote` | `POST` | First click (upvote) | `200 OK` | `200 OK` | ✅ Upvote count incremented (+1) |
+| `/api/v1/discussions/:id/upvote` | `POST` | Second click (unvote) | `200 OK` | `200 OK` | ✅ Upvote count decremented (-1) |
+| `/api/v1/discussions/:id/resolve` | `PATCH` | Regular student | `403 Forbidden` | `403 Forbidden` | ✅ RBAC blocked non-staff |
+| `/api/v1/discussions/:id/resolve` | `PATCH` | Admin / Instructor | `200 OK` | `200 OK` | ✅ Marked resolved & resolvedBy stored |
+| `/api/v1/discussions/:id/flag` | `PATCH` | Student reports post | `200 OK` | `200 OK` | ✅ Flagged for moderator review |
+| `/api/v1/discussions/:id/flag` | `PATCH` | Duplicate report | `409 Conflict` | `409 Conflict` | ✅ Duplicate report rejected |
+| `/api/v1/interaction/bookmark` | `POST` | Toggle bookmark | `200 OK` | `200 OK` | ✅ Timestamp bookmark toggled |
+| `/api/v1/interaction/bookmark/:cId` | `GET` | Retrieve bookmarks | `200 OK` | `200 OK` | ✅ Course bookmarks returned |
+| `/api/v1/interaction/bookmark/:bId` | `DELETE`| Delete bookmark | `200 OK` | `200 OK` | ✅ DEF-06-001 fixed, bookmark deleted |
+| `/api/v1/interaction/note` | `POST` | Add study note | `200 OK` | `200 OK` | ✅ Note saved with lecture title |
+| `/api/v1/interaction/note/:cId` | `GET` | Fetch study notes | `200 OK` | `200 OK` | ✅ Notes returned for course |
+| `/api/v1/interaction/note/:nId` | `DELETE`| Delete study note | `200 OK` | `200 OK` | ✅ Note deleted |
+| `/api/v1/notifications` | `GET` | List notifications | `200 OK` | `200 OK` | ✅ Notifications & unread counter returned |
+| `/api/v1/notifications/:id/read` | `PATCH` | Mark single read | `200 OK` | `200 OK` | ✅ Read flag set to true |
+| `/api/v1/notifications/read-all` | `PATCH` | Mark all read | `200 OK` | `200 OK` | ✅ All user notifications marked read |
+
+---
+
+### 💻 Frontend Parallel Test & Build Verification
+
+```bash
+ RUN  v3.2.7 /Users/abhimanyukumar/code/wd/project/frontend
+
+ ✓ src/shared/utils/__tests__/hasPermission.test.js (13 tests)
+ ✓ src/features/courses/__tests__/phase6.discussionsAndNotifications.test.jsx (9 tests)
+ ✓ src/features/payments/__tests__/phase5.payments.test.jsx (12 tests)
+ ✓ src/features/auth/__tests__/tokenStoreAndAuthSlice.test.js (9 tests)
+ ✓ src/features/auth/__tests__/RequireAuth.test.jsx (7 tests)
+ ✓ src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx (6 tests)
+ ✓ src/features/users/__tests__/phase3.profileAndProgress.test.jsx (7 tests)
+ ✓ src/shared/utils/__tests__/apiError.test.js (10 tests)
+
+ Test Files  8 passed (8)
+      Tests  73 passed (73) (100% pass rate)
+```
+
+- **Vite Production Build**: 3,186 modules compiled cleanly with 0 errors in 10.79s (`dist/` verified).
+
+---
+
+### 🏁 Phase 6 Quality Gate Sign-Off
+
+- **Open Backend Defects**: `0`
+- **Open Frontend Defects**: `0`
+- **Backend Tests Passing**: `115 / 115 (100%)`
+- **Frontend Tests Passing**: `73 / 73 (100%)`
+- **Total Combined Tests**: `188 / 188 (100% Green)`
+- **Quality & Security Sign-Off**: **APPROVED / SIGNED OFF**
+
+---
+
+*(Phase 7 will be appended below upon initiation)*

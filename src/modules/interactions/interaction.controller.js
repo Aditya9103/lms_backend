@@ -1,75 +1,57 @@
 import interactionService from './interaction.service.js';
-import AppError from '../../core/utils/AppError.js';
+import asyncHandler from '../../core/middlewares/asyncHandler.middleware.js';
+import { sendSuccess } from '../../core/utils/apiResponse.js';
 
-export const toggleBookmark = async (req, res, next) => {
-  try {
-    const { courseId, lectureId, timestamp, label } = req.body;
-    const userId = req.user.id;
+export const toggleBookmark = asyncHandler(async (req, res) => {
+  const { courseId, lectureId, timestamp, label } = req.body;
+  const userId = req.user.id;
 
-    const result = await interactionService.toggleBookmark(userId, courseId, lectureId, timestamp, label);
+  const result = await interactionService.toggleBookmark(userId, courseId, lectureId, timestamp, label);
 
-    res.status(200).json({
-      success: true,
-      message: result.message,
-      bookmarks: result.bookmarks,
-    });
-  } catch (error) {
-    return next(new AppError(error.message, 500));
-  }
-};
+  return sendSuccess(res, { bookmarks: result.bookmarks }, 200, result.message);
+});
 
-export const getBookmarks = async (req, res, next) => {
-  try {
-    const { courseId } = req.params;
-    const userId = req.user.id;
+export const getBookmarks = asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const userId = req.user.id;
 
-    const bookmarks = await interactionService.getBookmarks(userId, courseId);
+  const bookmarks = await interactionService.getBookmarks(userId, courseId);
 
-    res.status(200).json({ success: true, bookmarks });
-  } catch (error) {
-    return next(new AppError(error.message, 500));
-  }
-};
+  return sendSuccess(res, { bookmarks }, 200);
+});
 
-export const addNote = async (req, res, next) => {
-  try {
-    const { courseId, lectureId, lectureTitle, timestamp, text } = req.body;
-    const userId = req.user.id;
+export const deleteBookmark = asyncHandler(async (req, res) => {
+  const { bookmarkId } = req.params;
+  const userId = req.user.id;
 
-    const notes = await interactionService.addNote(userId, courseId, lectureId, lectureTitle, timestamp, text);
+  const result = await interactionService.deleteBookmark(userId, bookmarkId);
 
-    res.status(200).json({
-      success: true,
-      message: 'Note saved',
-      notes,
-    });
-  } catch (error) {
-    return next(new AppError(error.message, 500));
-  }
-};
+  return sendSuccess(res, { bookmarks: result.bookmarks }, 200, result.message);
+});
 
-export const getNotes = async (req, res, next) => {
-  try {
-    const { courseId } = req.params;
-    const userId = req.user.id;
+export const addNote = asyncHandler(async (req, res) => {
+  const { courseId, lectureId, lectureTitle, timestamp, text } = req.body;
+  const userId = req.user.id;
 
-    const notes = await interactionService.getNotes(userId, courseId);
+  const notes = await interactionService.addNote(userId, courseId, lectureId, lectureTitle, timestamp, text);
 
-    res.status(200).json({ success: true, notes });
-  } catch (error) {
-    return next(new AppError(error.message, 500));
-  }
-};
+  return sendSuccess(res, { notes }, 200, 'Note saved');
+});
 
-export const deleteNote = async (req, res, next) => {
-  try {
-    const { noteId } = req.params;
-    const userId = req.user.id;
+export const getNotes = asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const userId = req.user.id;
 
-    await interactionService.deleteNote(userId, noteId);
+  const notes = await interactionService.getNotes(userId, courseId);
 
-    res.status(200).json({ success: true, message: 'Note deleted' });
-  } catch (error) {
-    return next(new AppError(error.message, 500));
-  }
-};
+  return sendSuccess(res, { notes }, 200);
+});
+
+export const deleteNote = asyncHandler(async (req, res) => {
+  const { noteId } = req.params;
+  const userId = req.user.id;
+
+  await interactionService.deleteNote(userId, noteId);
+
+  return sendSuccess(res, null, 200, 'Note deleted');
+});

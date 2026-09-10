@@ -95,6 +95,22 @@ export const initSocket = async (httpServer, redisClient) => {
       socket.leave(`course:${courseId}`);
     });
 
+    socket.on('join:lecture', (data) => {
+      const lectureId = typeof data === 'string' ? data : data?.lectureId;
+      const courseId = typeof data === 'object' ? data?.courseId : null;
+      if (lectureId) socket.join(`lecture:${lectureId}`);
+      if (courseId) socket.join(`course:${courseId}`);
+      logger.debug(`[Socket] user:${userId} joined lecture:${lectureId}`);
+    });
+
+    socket.on('leave:lecture', (data) => {
+      const lectureId = typeof data === 'string' ? data : data?.lectureId;
+      const courseId = typeof data === 'object' ? data?.courseId : null;
+      if (lectureId) socket.leave(`lecture:${lectureId}`);
+      if (courseId) socket.leave(`course:${courseId}`);
+      logger.debug(`[Socket] user:${userId} left lecture:${lectureId}`);
+    });
+
     socket.on('disconnect', (reason) => {
       logger.debug(`[Socket] Disconnected: user:${userId} — ${reason}`);
     });
