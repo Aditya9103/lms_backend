@@ -11,10 +11,22 @@ import AppError from '../utils/AppError.js';
  * All error codes are SCREAMING_SNAKE_CASE for easy client-side switching.
  */
 const errorMiddleware = (err, req, res, _next) => {
+  if (res.headersSent) {
+    return _next(err);
+  }
+
   // Default values
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Something went wrong';
   let code = err.code || 'INTERNAL_SERVER_ERROR';
+
+  // ── Mongoose: schema validation error ────────────────────────────────────────
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    const messages = Object.values(err.errors || {}).map((e) => e.message);
+    message = messages.join(', ') || 'Validation error';
+    code = 'VALIDATION_ERROR';
+  }
 
   // ── Mongoose: invalid ObjectId ──────────────────────────────────────────────
   if (err.name === 'CastError') {

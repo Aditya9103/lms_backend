@@ -14,6 +14,7 @@ import app from '../../app.js';
 import requestIdMiddleware from '../middlewares/requestId.middleware.js';
 import validate from '../middlewares/validate.middleware.js';
 import eventBus from '../events/eventBus.js';
+import errorMiddleware from '../middlewares/error.middleware.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 import AppError from '../utils/AppError.js';
 
@@ -46,6 +47,20 @@ describe('=== Phase 1: Foundation & Observability Baseline ===', () => {
 
       expect(req.id).toBe(customId);
       expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', customId);
+      expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('sanitizes and discards invalid or injection-prone X-Request-Id headers', () => {
+      const maliciousHeader = 'bad\r\nInjected-Header: evil';
+      const req = { headers: { 'x-request-id': maliciousHeader } };
+      const res = { setHeader: jest.fn() };
+      const next = jest.fn();
+
+      requestIdMiddleware(req, res, next);
+
+      expect(req.id).not.toBe(maliciousHeader);
+      expect(req.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', req.id);
       expect(next).toHaveBeenCalledTimes(1);
     });
   });
@@ -97,6 +112,39 @@ describe('=== Phase 1: Foundation & Observability Baseline ===', () => {
           },
         },
       });
+    });
+
+    it('captures root formErrors from .refine() checks and includes them in envelope', () => {
+      const RefineSchema = z.object({
+        newPassword: z.string().min(8),
+        confirmPassword: z.string().min(8),
+      }).refine((data) => data.newPassword === data.confirmPassword, {
+        message: 'Passwords must match',
+      });
+
+      const req = {
+        body: { newPassword: 'Password123!', confirmPassword: 'DifferentPassword123!' },
+      };
+      const res = {};
+      res.status = jest.fn().mockReturnValue(res);
+      res.json = jest.fn().mockReturnValue(res);
+      const next = jest.fn();
+
+      const middleware = validate(RefineSchema, 'body');
+      middleware(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({
+            code: 'VALIDATION_ERROR',
+            message: 'Passwords must match',
+            formErrors: ['Passwords must match'],
+          }),
+        })
+      );
     });
   });
 
@@ -164,6 +212,59 @@ describe('=== Phase 1: Foundation & Observability Baseline ===', () => {
       expect(err.statusCode).toBe(403);
       expect(err.isOperational).toBe(true);
       expect(err.stack).toBeDefined();
+    });
+
+    it('supports passing string message as 4th parameter in sendSuccess', () => {
+      const res = {};
+      res.status = jest.fn().mockReturnValue(res);
+      res.json = jest.fn().mockReturnValue(res);
+
+      sendSuccess(res, { userId: '123' }, 200, 'Operation successful');
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        data: { userId: '123' },
+        message: 'Operation successful',
+      });
+    });
+
+    it('errorMiddleware handles Mongoose ValidationError mapping to 400 VALIDATION_ERROR', () => {
+      const mongooseError = {
+        name: 'ValidationError',
+        errors: {
+          title: { message: 'Title is required' },
+          price: { message: 'Price must be positive' },
+        },
+      };
+
+      const res = {};
+      res.status = jest.fn().mockReturnValue(res);
+      res.json = jest.fn().mockReturnValue(res);
+      const next = jest.fn();
+
+      errorMiddleware(mongooseError, { id: 'test-req' }, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({
+            code: 'VALIDATION_ERROR',
+            message: expect.stringContaining('Title is required'),
+          }),
+        })
+      );
+    });
+
+    it('errorMiddleware delegates to _next when headers are already sent', () => {
+      const res = { headersSent: true };
+      const next = jest.fn();
+      const err = new Error('Late failure');
+
+      errorMiddleware(err, {}, res, next);
+
+      expect(next).toHaveBeenCalledWith(err);
     });
   });
 

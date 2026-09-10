@@ -15,11 +15,16 @@
  * @param {import('express').Response} res
  * @param {*} data - Response payload
  * @param {number} [statusCode=200]
- * @param {Object} [meta={}] - Pagination or extra metadata
+ * @param {Object|string} [metaOrMessage={}] - Pagination metadata object or message string
  */
-export const sendSuccess = (res, data, statusCode = 200, meta = {}) => {
+export const sendSuccess = (res, data, statusCode = 200, metaOrMessage = {}) => {
   const body = { success: true, data };
-  if (Object.keys(meta).length > 0) body.meta = meta;
+  if (typeof metaOrMessage === 'string') {
+    body.message = metaOrMessage;
+  } else if (metaOrMessage && typeof metaOrMessage === 'object') {
+    if (metaOrMessage.message) body.message = metaOrMessage.message;
+    if (Object.keys(metaOrMessage).length > 0) body.meta = metaOrMessage;
+  }
   return res.status(statusCode).json(body);
 };
 

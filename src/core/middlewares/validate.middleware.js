@@ -24,13 +24,14 @@ const validate = (schema, source = 'body') => (req, res, next) => {
   const result = schema.safeParse(req[source]);
 
   if (!result.success) {
-    const fields = result.error.flatten().fieldErrors;
+    const flattened = result.error.flatten();
     return res.status(400).json({
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Invalid request data',
-        fields,
+        message: flattened.formErrors.length > 0 ? flattened.formErrors[0] : 'Invalid request data',
+        fields: flattened.fieldErrors,
+        ...(flattened.formErrors.length > 0 ? { formErrors: flattened.formErrors } : {}),
       },
     });
   }
