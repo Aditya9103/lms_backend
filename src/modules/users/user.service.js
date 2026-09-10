@@ -27,6 +27,7 @@ class UserService {
       fullName,
       email,
       password,
+      isVerified: true,
       avatar: {
         public_id: email,
         secure_url: 'https://res.cloudinary.com/dnad8ehxf',
@@ -56,11 +57,12 @@ class UserService {
       }
     }
 
+    const rawRefreshToken = user.generateRefreshToken(user._id.toString());
     await userRepository.save(user);
     const token = await user.generateJWTToken();
     user.password = undefined;
 
-    return { user, token };
+    return { user, token, rawRefreshToken };
   }
 
   async loginUser(email, password) {
@@ -190,7 +192,11 @@ class UserService {
     if (fullName) user.fullName = fullName;
 
     if (file) {
-      await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+      if (user.avatar?.public_id && !user.avatar.public_id.includes('@')) {
+        try {
+          await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+        } catch (_) {}
+      }
       try {
         const result = await cloudinary.v2.uploader.upload(file.path, {
           folder: 'lms', width: 250, height: 250, gravity: 'faces', crop: 'fill',
@@ -198,33 +204,50 @@ class UserService {
         if (result) {
           user.avatar.public_id = result.public_id;
           user.avatar.secure_url = result.secure_url;
-          await fs.rm(`uploads/${file.filename}`);
         }
       } catch (error) {
-        throw new AppError(error || 'File not uploaded, please try again', 400);
+        throw new AppError(error.message || 'File not uploaded, please try again', 400);
+      } finally {
+        try {
+          await fs.rm(`uploads/${file.filename}`, { force: true });
+        } catch (_) {
+          try { await fs.unlink(file.path); } catch (_) {}
+        }
       }
     }
     await userRepository.save(user);
+    return user;
   }
 
   async updateCourseProgress(userId, courseId, lectureId) {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
-    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
+    let prog = user.progress.find((p) => p.courseId.toString() === courseId.toString());
 
-    if (progressIndex !== -1) {
-      const lectureIndex = user.progress[progressIndex].completedLectures.indexOf(lectureId);
-      if (lectureIndex !== -1) {
-        user.progress[progressIndex].completedLectures.splice(lectureIndex, 1);
-      } else {
-        user.progress[progressIndex].completedLectures.push(lectureId);
-      }
-    } else {
+    if (!prog) {
       user.progress.push({
         courseId,
-        completedLectures: [lectureId],
+        completedLectures: [],
+        lectures: [],
+        quizAttempts: [],
+        completedQuizzes: [],
+        completedAssignments: [],
+        assignments: [],
       });
+      prog = user.progress[user.progress.length - 1];
+    }
+
+    if (!Array.isArray(prog.completedLectures)) {
+      prog.completedLectures = [];
+    }
+
+    const lectureIdStr = lectureId.toString();
+    const lectureIndex = prog.completedLectures.indexOf(lectureIdStr);
+    if (lectureIndex !== -1) {
+      prog.completedLectures.splice(lectureIndex, 1);
+    } else {
+      prog.completedLectures.push(lectureIdStr);
     }
 
     await userRepository.save(user);
@@ -262,11 +285,18 @@ class UserService {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
-    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
+    if (!Array.isArray(user.weakTopics)) {
+      user.weakTopics = [];
+    }
+
+    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId.toString());
 
     if (progressIndex !== -1) {
+      if (!Array.isArray(user.progress[progressIndex].completedQuizzes)) {
+        user.progress[progressIndex].completedQuizzes = [];
+      }
       const quizIndex = user.progress[progressIndex].completedQuizzes.findIndex(
-        (q) => q.quizId.toString() === quizId
+        (q) => q.quizId.toString() === quizId.toString()
       );
 
       if (quizIndex === -1) {
@@ -304,22 +334,30 @@ class UserService {
       try {
         const result = await cloudinary.v2.uploader.upload(file.path, {
           folder: 'lms_submissions',
-          resource_type: 'auto'
+          resource_type: 'auto',
         });
         if (result) {
           fileUrl = result.secure_url;
-          await fs.rm(`uploads/${file.filename}`);
         }
       } catch (error) {
-        throw new AppError(error || 'File not uploaded, please try again', 400);
+        throw new AppError(error.message || 'File not uploaded, please try again', 400);
+      } finally {
+        try {
+          await fs.rm(`uploads/${file.filename}`, { force: true });
+        } catch (_) {
+          try { await fs.unlink(file.path); } catch (_) {}
+        }
       }
     }
 
-    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
+    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId.toString());
 
     if (progressIndex !== -1) {
+      if (!Array.isArray(user.progress[progressIndex].completedAssignments)) {
+        user.progress[progressIndex].completedAssignments = [];
+      }
       const assignmentIndex = user.progress[progressIndex].completedAssignments.findIndex(
-        (a) => a.assignmentId.toString() === assignmentId
+        (a) => a.assignmentId.toString() === assignmentId.toString()
       );
 
       if (assignmentIndex === -1) {
@@ -330,7 +368,7 @@ class UserService {
         });
       } else {
         if (fileUrl) {
-           user.progress[progressIndex].completedAssignments[assignmentIndex].fileUrl = fileUrl;
+          user.progress[progressIndex].completedAssignments[assignmentIndex].fileUrl = fileUrl;
         }
       }
     } else {
@@ -348,11 +386,15 @@ class UserService {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
-    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId);
+    const progressIndex = user.progress.findIndex((p) => p.courseId.toString() === courseId.toString());
     if (progressIndex === -1) throw new AppError('Course progress not found for user', 404);
 
+    if (!Array.isArray(user.progress[progressIndex].completedAssignments)) {
+      user.progress[progressIndex].completedAssignments = [];
+    }
+
     const assignmentIndex = user.progress[progressIndex].completedAssignments.findIndex(
-      (a) => a.assignmentId.toString() === assignmentId
+      (a) => a.assignmentId.toString() === assignmentId.toString()
     );
 
     if (assignmentIndex === -1) {

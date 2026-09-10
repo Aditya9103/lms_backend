@@ -114,6 +114,7 @@ const userSchema = new Schema(
           required: true,
         },
         // ── Lecture progress ────────────────────────────────────────────────
+        completedLectures: [{ type: String }],
         lectures: [
           {
             lectureId: { type: Schema.Types.ObjectId, required: true },
@@ -125,6 +126,13 @@ const userSchema = new Schema(
           },
         ],
         // ── Quiz attempts ────────────────────────────────────────────────────
+        completedQuizzes: [
+          {
+            quizId: { type: Schema.Types.ObjectId },
+            score: Number,
+            totalQuestions: Number,
+          },
+        ],
         quizAttempts: [
           {
             quizId: { type: Schema.Types.ObjectId, required: true },
@@ -139,6 +147,14 @@ const userSchema = new Schema(
           },
         ],
         // ── Assignment submissions + append-only grade history ───────────────
+        completedAssignments: [
+          {
+            assignmentId: { type: Schema.Types.ObjectId },
+            status: { type: String, default: 'SUBMITTED' },
+            fileUrl: String,
+            score: Number,
+          },
+        ],
         assignments: [
           {
             assignmentId: { type: Schema.Types.ObjectId, required: true },
@@ -263,9 +279,9 @@ userSchema.methods = {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + (config.REFRESH_TOKEN_EXPIRY_DAYS || 30));
 
-    // Clean up expired tokens before adding new one (housekeeping)
+    // Clean up truly expired tokens before adding new one (preserve revoked unexpired tokens for reuse detection)
     this.refreshTokens = (this.refreshTokens || []).filter(
-      (t) => !t.isRevoked && t.expiresAt > new Date()
+      (t) => t.expiresAt > new Date()
     );
 
     this.refreshTokens.push({ tokenHash, deviceInfo, expiresAt });

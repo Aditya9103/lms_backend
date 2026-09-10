@@ -225,10 +225,7 @@ export const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
   if (!user) {
     // Check if the token hash exists at all (even revoked) to detect reuse
-    const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
-    const possibleUser = await userRepository.findOne?.({
-      'refreshTokens.tokenHash': tokenHash,
-    });
+    const possibleUser = await userRepository.findByAnyTokenHash(rawRefreshToken);
 
     if (possibleUser) {
       // REUSE DETECTED: a previously-rotated token was replayed — likely theft

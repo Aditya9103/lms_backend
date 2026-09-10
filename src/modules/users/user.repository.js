@@ -62,6 +62,17 @@ class UserRepository {
   }
 
   /**
+   * Finds a user having any refresh token matching the hash (regardless of isRevoked status).
+   * Used strictly for token reuse detection (theft alert).
+   */
+  async findByAnyTokenHash(rawToken) {
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    return await User.findOne({
+      'refreshTokens.tokenHash': tokenHash,
+    }).select('+refreshTokens.tokenHash');
+  }
+
+  /**
    * Marks a specific refresh token as revoked by its hash.
    * Used during rotation (the old token is revoked when a new one is issued).
    */

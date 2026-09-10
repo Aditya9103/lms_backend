@@ -79,21 +79,30 @@ export const UpdateProfileDto = z.object({
 export const VideoProgressDto = z.object({
   courseId: z.string().min(1),
   lectureId: z.string().min(1),
-  positionSeconds: z.coerce.number().min(0),
-  durationSeconds: z.coerce.number().min(1),
-});
+  timestamp: z.coerce.number().min(0).optional(),
+  positionSeconds: z.coerce.number().min(0).optional(),
+  lastPositionSeconds: z.coerce.number().min(0).optional(),
+  watchedPercent: z.coerce.number().min(0).max(100).optional(),
+  durationSeconds: z.coerce.number().min(0).optional(),
+}).refine(
+  (data) => data.timestamp !== undefined || data.positionSeconds !== undefined || data.lastPositionSeconds !== undefined,
+  { message: 'One of timestamp, positionSeconds, or lastPositionSeconds is required' }
+);
 
 /** POST /user/quiz/submit */
 export const QuizSubmitDto = z.object({
   courseId: z.string().min(1),
-  sectionId: z.string().min(1),
   quizId: z.string().min(1),
+  sectionId: z.string().optional(),
+  score: z.coerce.number().min(0).optional(),
+  totalQuestions: z.coerce.number().min(0).optional(),
+  topic: z.string().optional(),
   answers: z.array(
     z.object({
       questionId: z.string().min(1),
       selectedOption: z.union([z.number(), z.array(z.number()), z.string()]),
     })
-  ).min(1, 'At least one answer is required'),
+  ).optional(),
 });
 
 /** Admin login routes */

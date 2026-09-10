@@ -26,10 +26,10 @@ import {
   superAdminSignup,
   gradeAssignment,
 } from './user.controller.js';
-import { isLoggedIn, authorizeRoles } from '../../core/middlewares/auth.middleware.js';
+import { isLoggedIn, authorizeRoles, refreshAccessToken } from '../../core/middlewares/auth.middleware.js';
 import upload from '../../core/middlewares/multer.middleware.js';
 import validate from '../../core/middlewares/validate.middleware.js';
-import { authLimiter, uploadLimiter } from '../../core/middlewares/rateLimiter.middleware.js';
+import { authLimiter, uploadLimiter, refreshLimiter } from '../../core/middlewares/rateLimiter.middleware.js';
 import {
   RegisterDto,
   LoginDto,
@@ -99,11 +99,14 @@ router.post('/super-admin/signup', authLimiter, validate(SuperAdminSignupDto), s
 // ─── OAuth & Session ──────────────────────────────────────────────────────────
 router.post('/google-auth', authLimiter, googleAuth);
 router.post('/logout', logoutUser);
+router.post('/refresh', refreshLimiter, refreshAccessToken);
 
 // ─── Authenticated User Routes ────────────────────────────────────────────────
 router.get('/me', isLoggedIn, getLoggedInUserDetails);
 router.post('/reset', authLimiter, validate(ForgotPasswordDto), forgotPassword);
 router.post('/reset/:resetToken', authLimiter, validate(ResetPasswordDto), resetPassword);
+router.post('/forgot-password', authLimiter, validate(ForgotPasswordDto), forgotPassword);
+router.post('/reset-password/:resetToken', authLimiter, validate(ResetPasswordDto), resetPassword);
 router.post('/change-password', isLoggedIn, validate(ChangePasswordDto), changePassword);
 router.put('/update/:id', isLoggedIn, upload.single('avatar'), validate(UpdateProfileDto), updateUser);
 

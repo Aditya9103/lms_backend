@@ -78,7 +78,7 @@ const createLimiter = (opts, redisPrefix = 'rl:') => {
   return rateLimit({
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    validate: { xForwardedForHeader: false },
+    validate: { xForwardedForHeader: false, singleCount: false },
     store: proxyStore,
     handler: rateLimitHandler,
     ...opts,

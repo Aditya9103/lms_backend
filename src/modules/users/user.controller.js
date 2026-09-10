@@ -84,8 +84,8 @@ export const getLoggedInUserDetails = asyncHandler(async (req, res) => {
 
 export const updateUser = asyncHandler(async (req, res) => {
   const { fullName } = req.body;
-  await userService.updateUser(req.params.id, fullName, req.file);
-  return sendSuccess(res, null);
+  const user = await userService.updateUser(req.params.id, fullName, req.file);
+  return sendSuccess(res, { user }, 200, 'Profile updated successfully');
 });
 
 // ── Password reset ────────────────────────────────────────────────────────────
@@ -186,9 +186,10 @@ export const updateCourseProgress = asyncHandler(async (req, res) => {
 });
 
 export const updateVideoProgress = asyncHandler(async (req, res) => {
-  const { courseId, lectureId, timestamp } = req.body;
+  const { courseId, lectureId, timestamp, positionSeconds, lastPositionSeconds } = req.body;
+  const time = timestamp ?? positionSeconds ?? lastPositionSeconds ?? 0;
   const recentlyWatched = await userService.updateVideoProgress(
-    req.user.id, courseId, lectureId, timestamp
+    req.user.id, courseId, lectureId, Number(time)
   );
   return sendSuccess(res, { recentlyWatched });
 });
