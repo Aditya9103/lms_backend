@@ -18,6 +18,10 @@
  * @param {Object|string} [metaOrMessage={}] - Pagination metadata object or message string
  */
 export const sendSuccess = (res, data, statusCode = 200, metaOrMessage = {}) => {
+  if (typeof statusCode === 'string' || (typeof statusCode === 'object' && statusCode !== null && !Array.isArray(statusCode))) {
+    metaOrMessage = statusCode;
+    statusCode = 200;
+  }
   const body = { success: true, data };
   if (typeof metaOrMessage === 'string') {
     body.message = metaOrMessage;

@@ -8,7 +8,7 @@ import { sendSuccess } from '../../core/utils/apiResponse.js';
 
 export const buySubscription = asyncHandler(async (req, res) => {
   const subscription_id = await paymentService.buySubscription(req.user.id);
-  return sendSuccess(res, { subscription_id }, 'Subscribed successfully');
+  return sendSuccess(res, { subscription_id }, 200, 'Subscribed successfully');
 });
 
 export const verifySubscription = asyncHandler(async (req, res) => {
@@ -23,26 +23,26 @@ export const verifySubscription = asyncHandler(async (req, res) => {
     razorpay_signature,
     idempotencyKey
   );
-  return sendSuccess(res, null, 'Payment verified successfully');
+  return sendSuccess(res, null, 200, 'Payment verified successfully');
 });
 
 export const cancelSubscription = asyncHandler(async (req, res) => {
   await paymentService.cancelSubscription(req.user.id);
-  return sendSuccess(res, null, 'Subscription canceled successfully');
+  return sendSuccess(res, null, 200, 'Subscription canceled successfully');
 });
 
 export const getRazorpayApiKey = asyncHandler(async (_req, res) => {
-  return sendSuccess(res, { key: process.env.RAZORPAY_KEY_ID }, 'Razorpay API key');
+  return sendSuccess(res, { key: process.env.RAZORPAY_KEY_ID }, 200, 'Razorpay API key');
 });
 
 export const allPayments = asyncHandler(async (req, res) => {
   const { count, skip } = req.query;
   const data = await paymentService.getAllPayments(count, skip);
-  return sendSuccess(res, data);
+  return sendSuccess(res, data, 200);
 });
 
 /** Admin-only: manually trigger reconciliation of unverified payments */
 export const reconcilePayments = asyncHandler(async (req, res) => {
   const result = await paymentService.reconcileUnverifiedPayments();
-  return sendSuccess(res, result, 'Reconciliation complete');
+  return sendSuccess(res, result, 200, 'Reconciliation complete');
 });

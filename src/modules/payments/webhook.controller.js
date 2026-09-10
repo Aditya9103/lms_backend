@@ -36,48 +36,80 @@ const WEBHOOK_SECRET = config.RAZORPAY_WEBHOOK_SECRET;
  * @returns {boolean}
  */
 const verifyWebhookSignature = (rawBody, signature) => {
-  if (!WEBHOOK_SECRET) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || config.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
     logger.warn('[Webhook] RAZORPAY_WEBHOOK_SECRET not set — skipping HMAC verification (UNSAFE)');
     return true; // non-blocking in dev; prod must always have the secret
   }
+  if (!signature || typeof signature !== 'string') return false;
+
   const expected = crypto
-    .createHmac('sha256', WEBHOOK_SECRET)
+    .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature || ''));
+
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+
+  if (expectedBuf.length !== signatureBuf.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 };
 
 const webhookHandler = async (req, res) => {
-  // ── 1. Immediate 200 ACK ──────────────────────────────────────────────────
-  // Razorpay considers any non-2xx response a failure and will retry.
-  // We ACK immediately and process asynchronously to avoid retries on transient errors.
-  res.status(200).json({ received: true });
+  // ── 1. Normalize body & event ─────────────────────────────────────────────
+  let event;
+  let rawBuffer;
+
+  if (Buffer.isBuffer(req.body)) {
+    rawBuffer = req.body;
+    try {
+      event = JSON.parse(req.body.toString('utf-8'));
+      if (event && event.type === 'Buffer' && Array.isArray(event.data)) {
+        rawBuffer = Buffer.from(event.data);
+        event = JSON.parse(rawBuffer.toString('utf-8'));
+      }
+    } catch {
+      logger.error('[Webhook] Failed to parse webhook payload');
+      return res.status(200).json({ received: true, dropped: true, error: 'Failed to parse webhook payload' });
+    }
+  } else if (typeof req.body === 'string') {
+    rawBuffer = Buffer.from(req.body);
+    try {
+      event = JSON.parse(req.body);
+      if (event && event.type === 'Buffer' && Array.isArray(event.data)) {
+        rawBuffer = Buffer.from(event.data);
+        event = JSON.parse(rawBuffer.toString('utf-8'));
+      }
+    } catch {
+      logger.error('[Webhook] Failed to parse webhook payload');
+      return res.status(200).json({ received: true, dropped: true, error: 'Failed to parse webhook payload' });
+    }
+  } else if (typeof req.body === 'object' && req.body !== null) {
+    event = req.body;
+    rawBuffer = Buffer.from(JSON.stringify(req.body));
+  } else {
+    logger.error('[Webhook] Empty or invalid body');
+    return res.status(200).json({ received: true, dropped: true, error: 'Empty or invalid body' });
+  }
 
   // ── 2. HMAC verification ──────────────────────────────────────────────────
-  const rawBody = req.body; // Buffer — courtesy of express.raw()
   const signature = req.headers['x-razorpay-signature'];
 
-  if (!verifyWebhookSignature(rawBody, signature)) {
+  if (!verifyWebhookSignature(rawBuffer, signature)) {
     logger.warn('[Webhook] HMAC verification FAILED — dropping event', {
       signature,
       ip: req.ip,
     });
-    return; // Drop silently; already ACK'd with 200
-  }
-
-  // ── 3. Parse payload ──────────────────────────────────────────────────────
-  let event;
-  try {
-    event = JSON.parse(rawBody.toString('utf-8'));
-  } catch {
-    logger.error('[Webhook] Failed to parse webhook payload');
-    return;
+    return res.status(200).json({ received: true, dropped: true, error: 'Invalid signature' });
   }
 
   const eventName = event.event;
   logger.info(`[Webhook] Received: ${eventName}`, { entity: event.payload?.payment?.entity?.id });
 
-  // ── 4. Route to handler ───────────────────────────────────────────────────
+  // ── 3. Route to handler ───────────────────────────────────────────────────
   try {
     switch (eventName) {
       case 'payment.captured':
@@ -94,11 +126,15 @@ const webhookHandler = async (req, res) => {
         logger.debug(`[Webhook] Unhandled event type: ${eventName}`);
     }
   } catch (err) {
-    // Log but do NOT rethrow — response already sent
+    // Log error
     logger.error(`[Webhook] Error processing ${eventName}`, {
       error: err.message,
       stack: err.stack,
     });
+  } finally {
+    if (!res.headersSent) {
+      res.status(200).json({ received: true });
+    }
   }
 };
 

@@ -15,7 +15,7 @@
 | **Phase 2** | Security, Authentication Hardening & RBAC | ✅ 63 / 63 Passed (100%) | ✅ Verified | 6 Found / 6 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 3** | User Profile, Avatar & Streak Analytics | ✅ 123 / 123 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 4** | Course Lifecycle, Video Transcoding & DRM | ✅ 143 / 143 Passed (100%) | ✅ Verified | 5 Found / 5 Resolved (0 Open) | **PASSED (Signed Off)** |
-| **Phase 5** | Payment Gateway, Webhook Idempotency & Invoicing | ⏳ Pending | ⏳ Pending | - | Pending |
+| **Phase 5** | Payment Gateway, Webhook Idempotency & Invoicing | ✅ 168 / 168 Passed (100%) | ✅ Verified | 4 Found / 4 Resolved (0 Open) | **PASSED (Signed Off)** |
 | **Phase 6** | Real-Time Discussions, WebSockets & AI Copilot | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 7** | SuperAdmin Multi-Tenant Operations & System Audits | ⏳ Pending | ⏳ Pending | - | Pending |
 | **Phase 8** | Background Workers, Dead Letter Queues & Cron | ⏳ Pending | ⏳ Pending | - | Pending |
@@ -520,7 +520,113 @@ Tests       52 passed (52) (100% pass rate)
 
 ---
 
-*(Phase 5 will be appended below upon initiation)*
+# Phase 5: Payment Gateway, Webhook Idempotency & Invoicing
+
+- **Target Endpoints / Subsystems**:
+  - `GET /api/v1/payments/razorpay-key` (Secure public key retrieval)
+  - `POST /api/v1/payments/subscribe` (Subscription purchase & active status guard)
+  - `POST /api/v1/payments/verify` (HMAC SHA-256 signature verification & Idempotency-Key handling)
+  - `POST /api/v1/payments/unsubscribe` (Subscription cancellation & subscriber guard)
+  - `POST /api/v1/payments/webhook` (Razorpay asynchronous webhooks, timingSafeEqual buffer length guard, payload normalization)
+  - `GET /api/v1/payments` (Admin payment audit logs & RBAC guard)
+  - Frontend `RazorpaySlice.js` (State machine: `IDLE -> INITIATING -> PAYMENT_OPEN -> CONFIRMING -> ENROLLED / FAILED`), `payment.service.js`, `Checkout.jsx`, and `CheckoutSuccess.jsx`
+
+---
+
+### 🧪 Iteration Loop 1: Test Execution & Defect Audit
+
+Exhaustive integration testing across backend payment endpoints and frontend state machine identified 4 critical and high-severity defects:
+
+#### Defect Register (Loop 1)
+
+| Defect ID | Severity | Category | Target File | Description & Root Cause |
+|---|---|---|---|---|
+| **DEF-05-001** | **CRITICAL** | API Contract / Argument Inversion | `src/core/utils/apiResponse.js` & `payment.controller.js` | **Root Cause**: `sendSuccess(res, data, statusCode, metaOrMessage)` was called as `sendSuccess(res, data, 'message')`, passing a string where Express expects an integer status code.<br>**Impact**: Express crashed with `RangeError [ERR_HTTP_INVALID_STATUS_CODE]: Invalid status code: Subscribed successfully`, dropping valid subscription checkouts. |
+| **DEF-05-002** | **CRITICAL** | Security / Unhandled Buffer Exception | `src/modules/payments/webhook.controller.js` | **Root Cause**: `crypto.timingSafeEqual(expectedBuf, signatureBuf)` throws a fatal unhandled `RangeError` if the two buffers have unequal lengths.<br>**Impact**: Any malformed, truncated, or short `x-razorpay-signature` crashed the Node.js event loop rather than gracefully returning false. |
+| **DEF-05-003** | **HIGH** | Webhook Concurrency & Normalization | `src/modules/payments/webhook.controller.js` | **Root Cause**: `res.status(200).json({ received: true })` was issued before asynchronous event processing (`handlePaymentCaptured`), causing test suites and rapid clients to experience race conditions before DB writes committed. Furthermore, JSON stringification of Buffer objects yielded `{ type: 'Buffer', data: [...] }` which broke payload event extraction.<br>**Impact**: Payment verification race conditions and drops on webhook retry. |
+| **DEF-05-004** | **HIGH** | Business Logic / Subscription Guards | `src/modules/payments/payment.service.js` | **Root Cause**: `buySubscription` lacked a check for existing `active` subscriptions, permitting duplicate charges. Also, `cancelSubscription` accessed `user.subscription.id` directly without optional chaining.<br>**Impact**: Unhandled TypeError if a user without a subscription attempted cancellation. |
 
 
+---
 
+### 🛠️ Iteration Loop 2: Code Fixes & Remediation
+
+All 4 defects were resolved directly:
+
+1. **Fix for DEF-05-001** (`apiResponse.js` & `payment.controller.js`):
+   - Added polymorphic parameter detection in `sendSuccess`: if `statusCode` is a string or non-array object, it automatically shifts to `metaOrMessage` with `statusCode = 200`.
+   - Updated all calls in `payment.controller.js` to explicitly pass HTTP 200 status codes.
+
+2. **Fix for DEF-05-002** (`webhook.controller.js`):
+   - Added an explicit buffer length check guard before calling `crypto.timingSafeEqual`:
+     `if (expectedBuf.length !== signatureBuf.length) return false;`
+
+3. **Fix for DEF-05-003** (`webhook.controller.js`):
+   - Refactored `webhookHandler` to await handler execution inside `try/catch` and issue the 200 ACK inside `finally { if (!res.headersSent) res.status(200).json({ received: true }); }`.
+   - Added unpacking support for `{ type: 'Buffer', data: [...] }` across both Buffer and string body types.
+
+4. **Fix for DEF-05-004** (`payment.service.js`):
+   - Added active subscription check in `buySubscription`:
+     `if (user.subscription?.status === 'active') throw new AppError('You already have an active subscription', 400);`
+   - Added defensive guard in `cancelSubscription`:
+     `const subscriptionId = user.subscription?.id; if (!subscriptionId) throw new AppError('No active subscription found to cancel', 400);`
+
+---
+
+### 🔁 Iteration Loop 3: Re-Testing & Full Regression Suite
+
+1. **Backend Integration Suite**: [`src/core/__tests__/phase5.payments.test.js`](file:///Users/abhimanyukumar/code/wd/project/lms_backend/src/core/__tests__/phase5.payments.test.js) with 13 automated tests covering key retrieval, subscription purchase guards, HMAC verification, idempotency retries, cancellation guards, safe malformed webhook handling, subscription activation, cancellation, and RBAC records.
+2. **Frontend Vitest Suite**: [`frontend/src/features/payments/__tests__/phase5.payments.test.jsx`](file:///Users/abhimanyukumar/code/wd/project/frontend/src/features/payments/__tests__/phase5.payments.test.jsx) with 12 automated tests covering `RazorpaySlice`, state transitions (`IDLE -> INITIATING -> PAYMENT_OPEN -> CONFIRMING -> ENROLLED / FAILED`), idempotency headers, and `paymentService`.
+
+#### Security & Contract Verification Matrix:
+| Target Route | HTTP Method | Scenario | Expected Status | Actual Status | Result |
+|---|---|---|---|---|---|
+| `/api/v1/payments/razorpay-key` | `GET` | Authenticated user | `200 OK` | `200 OK` | ✅ Razorpay public key returned |
+| `/api/v1/payments/razorpay-key` | `GET` | Unauthenticated | `401 Unauthorized` | `401 Unauthorized` | ✅ Auth guard enforced |
+| `/api/v1/payments/subscribe` | `POST` | Admin user | `400 Bad Request` | `400 Bad Request` | ✅ Admin purchase blocked |
+| `/api/v1/payments/subscribe` | `POST` | Already active subscriber | `400 Bad Request` | `400 Bad Request` | ✅ Duplicate subscription blocked |
+| `/api/v1/payments/verify` | `POST` | Invalid HMAC signature | `400 Bad Request` | `400 Bad Request` | ✅ Cryptographic rejection |
+| `/api/v1/payments/verify` | `POST` | Valid HMAC signature | `200 OK` | `200 OK` | ✅ Subscription activated & payment saved |
+| `/api/v1/payments/verify` | `POST` | Duplicate Idempotency-Key | `200 OK` | `200 OK` | ✅ Idempotent deduplication (1 record) |
+| `/api/v1/payments/unsubscribe` | `POST` | Non-subscriber | `403 Forbidden` | `403 Forbidden` | ✅ Subscriber guard enforced |
+| `/api/v1/payments/webhook` | `POST` | Malformed/short HMAC signature | `200 OK` | `200 OK` | ✅ Safe drop without crash |
+| `/api/v1/payments/webhook` | `POST` | `payment.captured` event | `200 OK` | `200 OK` | ✅ Subscription activated & event emitted |
+| `/api/v1/payments/webhook` | `POST` | `subscription.cancelled` event | `200 OK` | `200 OK` | ✅ Subscription marked cancelled |
+| `/api/v1/payments/webhook` | `POST` | Duplicate webhook event | `200 OK` | `200 OK` | ✅ Idempotent processing (1 record) |
+| `/api/v1/payments` | `GET` | Regular USER role | `403 Forbidden` | `403 Forbidden` | ✅ Admin RBAC enforced |
+
+---
+
+### 💻 Frontend Parallel Test & Build Verification
+
+```bash
+ RUN  v3.2.7 /Users/abhimanyukumar/code/wd/project/frontend
+
+ ✓ src/shared/utils/__tests__/apiError.test.js (10 tests)
+ ✓ src/shared/utils/__tests__/hasPermission.test.js (13 tests)
+ ✓ src/features/payments/__tests__/phase5.payments.test.jsx (12 tests)
+ ✓ src/features/auth/__tests__/tokenStoreAndAuthSlice.test.js (9 tests)
+ ✓ src/features/auth/__tests__/RequireAuth.test.jsx (7 tests)
+ ✓ src/features/courses/__tests__/phase4.coursesAndLectures.test.jsx (6 tests)
+ ✓ src/features/users/__tests__/phase3.profileAndProgress.test.jsx (7 tests)
+
+ Test Files  7 passed (7)
+      Tests  64 passed (64) (100% pass rate)
+```
+
+- **Vite Production Build**: 3,186 modules compiled cleanly with 0 errors in 10.22s (`dist/` verified).
+
+---
+
+### 🏁 Phase 5 Quality Gate Sign-Off
+
+- **Open Backend Defects**: `0`
+- **Open Frontend Defects**: `0`
+- **Backend Tests Passing**: `104 / 104 (100%)`
+- **Frontend Tests Passing**: `64 / 64 (100%)`
+- **Total Combined Tests**: `168 / 168 (100% Green)`
+- **Quality & Security Sign-Off**: **APPROVED / SIGNED OFF**
+
+---
+
+*(Phase 6 will be appended below upon initiation)*

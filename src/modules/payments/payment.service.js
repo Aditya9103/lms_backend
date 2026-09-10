@@ -23,6 +23,9 @@ class PaymentService {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('Unauthorized, please login', 401);
     if (user.role === 'ADMIN') throw new AppError('Admin cannot purchase a subscription', 400);
+    if (user.subscription?.status === 'active') {
+      throw new AppError('You already have an active subscription', 400);
+    }
 
     const subscription = await getRazorpay().subscriptions.create({
       plan_id: process.env.RAZORPAY_PLAN_ID,
@@ -118,7 +121,9 @@ class PaymentService {
     if (!user) throw new AppError('Unauthorized', 401);
     if (user.role === 'ADMIN') throw new AppError('Admin does not need to cancel subscription', 400);
 
-    const subscriptionId = user.subscription.id;
+    const subscriptionId = user.subscription?.id;
+    if (!subscriptionId) throw new AppError('No active subscription found to cancel', 400);
+
     let subscription;
 
     try {
@@ -126,7 +131,10 @@ class PaymentService {
       user.subscription.status = subscription.status;
       await userRepository.save(user);
     } catch (error) {
-      throw new AppError(error.error.description, error.statusCode);
+      throw new AppError(
+        error?.error?.description || error.message || 'Failed to cancel subscription',
+        error.statusCode || 500
+      );
     }
 
     const payment = await paymentRepository.findPaymentBySubscriptionId(subscriptionId);
