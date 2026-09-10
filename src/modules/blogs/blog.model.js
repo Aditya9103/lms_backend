@@ -29,7 +29,21 @@ const blogSchema = new Schema({
     readingTime: {
         type: String,
         default: '5 min read'
-    }
+    },
+    slug: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        index: true
+    },
+    status: {
+        type: String,
+        enum: ['draft', 'published'],
+        default: 'published',
+        index: true
+    },
+    tags: [String],
+    metaDescription: String
 }, {
     timestamps: true
 });

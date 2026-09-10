@@ -10,7 +10,10 @@ class BlogRepository {
   }
 
   async findBlogById(id) {
-    return await Blog.findById(id);
+    if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+      return await Blog.findById(id);
+    }
+    return await Blog.findOne({ slug: id });
   }
 
   async deleteBlogById(id) {

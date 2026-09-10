@@ -83,7 +83,11 @@ const createIndexes = async () => {
   const blogs = db.collection('blogs');
   await blogs.createIndex({ slug: 1 }, { unique: true, sparse: true, name: 'idx_blogs_slug' });
   await blogs.createIndex({ status: 1, createdAt: -1 }, { name: 'idx_blogs_status_date' });
-  console.log('✓ blogs indexes');
+  // ── Discussions collection (Phase 9) ──────────────────────────────────────────
+  const discussions = db.collection('discussions');
+  await discussions.createIndex({ courseId: 1, lectureId: 1, hidden: 1, createdAt: -1 }, { name: 'idx_discussions_course_lecture' });
+  await discussions.createIndex({ upvotes: -1 }, { name: 'idx_discussions_upvotes' });
+  console.log('✓ discussions indexes');
 
   console.log('\n✅  All indexes created successfully.');
   await mongoose.disconnect();

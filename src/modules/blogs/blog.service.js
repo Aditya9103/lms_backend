@@ -3,13 +3,21 @@ import cloudinary from 'cloudinary';
 import AppError from '../../core/utils/AppError.js';
 
 class BlogService {
-  async createBlog(title, content, excerpt, category, author, file) {
+  async createBlog(title, content, excerpt, category, author, file, slug, metaDescription, tags) {
+    const autoSlug = (slug || title)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+
     const blog = await blogRepository.createBlog({
       title,
       content,
       excerpt,
       category,
       author,
+      slug: autoSlug,
+      metaDescription: metaDescription || excerpt,
+      tags: tags || [],
     });
 
     if (file) {

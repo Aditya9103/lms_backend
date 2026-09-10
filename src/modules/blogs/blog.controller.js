@@ -3,14 +3,24 @@ import AppError from '../../core/utils/AppError.js';
 import blogService from './blog.service.js';
 
 export const createBlog = asyncHandler(async (req, res, next) => {
-  const { title, content, excerpt, category, author } = req.body;
+  const { title, content, excerpt, category, author, slug, metaDescription, tags } = req.body;
 
   if (!title || !content || !excerpt) {
     return next(new AppError('All fields are required', 400));
   }
 
   try {
-    const blog = await blogService.createBlog(title, content, excerpt, category, author, req.file);
+    const blog = await blogService.createBlog(
+      title,
+      content,
+      excerpt,
+      category,
+      author,
+      req.file,
+      slug,
+      metaDescription,
+      tags
+    );
     res.status(201).json({
       success: true,
       message: 'Blog created successfully',
