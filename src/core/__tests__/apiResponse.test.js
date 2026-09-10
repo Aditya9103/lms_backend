@@ -4,8 +4,8 @@
  * These are pure-function tests (no DB, no mocks needed).
  * They verify the response envelope shape that all controllers depend on.
  */
-import { sendSuccess } from '../../utils/apiResponse.js';
-import AppError from '../../utils/AppError.js';
+import { sendSuccess } from '../utils/apiResponse.js';
+import AppError from '../utils/AppError.js';
 
 // ── Mock res object ───────────────────────────────────────────────────────────
 const makeMockRes = () => {

@@ -4,10 +4,20 @@ import cloudinary from 'cloudinary';
 import courseRepository from './course.repository.js';
 import User from '../users/user.model.js';
 import AppError from '../../core/utils/AppError.js';
+import { cacheAside, cacheInvalidate, cacheInvalidateKey } from '../../core/cache/cacheAside.js';  // Phase 8
+
+const CATALOG_KEY  = 'courses:catalog';
+const CATALOG_TTL  = 300; // 5 minutes — mirrors RTK Query keepUnusedDataFor
+const detailKey    = (id) => `courses:detail:${id}`;
 
 class CourseService {
+  // Phase 8: cache-aside — catalog TTL 5 min
   async getAllCourses() {
-    return await courseRepository.findAll();
+    return await cacheAside(
+      CATALOG_KEY,
+      () => courseRepository.findAll(),
+      { ttl: CATALOG_TTL }
+    );
   }
 
   async createCourse(courseData, file) {
@@ -23,15 +33,16 @@ class CourseService {
           course.thumbnail.public_id = result.public_id;
           course.thumbnail.secure_url = result.secure_url;
         }
-        await fs.rm(`uploads/${file.filename}`);
-      } catch (error) {
-        for (const f of await fs.readdir('uploads/')) {
-          await fs.unlink(path.join('uploads/', f));
+        if (file.filename) {
+          try { await fs.rm(`uploads/${file.filename}`); } catch {}
         }
+      } catch (error) {
         throw new AppError(JSON.stringify(error) || 'File not uploaded, please try again', 400);
       }
     }
     await courseRepository.save(course);
+    // Phase 8: new course invalidates the catalog cache
+    await cacheInvalidateKey(CATALOG_KEY);
     return course;
   }
 
@@ -70,11 +81,10 @@ class CourseService {
           lectureData.public_id = result.public_id;
           lectureData.secure_url = result.secure_url;
         }
-        await fs.rm(`uploads/${file.filename}`);
-      } catch (error) {
-        for (const f of await fs.readdir('uploads/')) {
-          await fs.unlink(path.join('uploads/', f));
+        if (file.filename) {
+          try { await fs.rm(`uploads/${file.filename}`); } catch {}
         }
+      } catch (error) {
         throw new AppError(JSON.stringify(error) || 'File not uploaded, please try again', 400);
       }
     }
@@ -108,12 +118,22 @@ class CourseService {
   async updateCourseById(courseId, updateData) {
     const course = await courseRepository.updateById(courseId, updateData);
     if (!course) throw new AppError('Invalid course id or course not found.', 400);
+    // Phase 8: invalidate both catalog and detail caches
+    await Promise.all([
+      cacheInvalidateKey(CATALOG_KEY),
+      cacheInvalidateKey(detailKey(courseId)),
+    ]);
     return course;
   }
 
   async deleteCourseById(courseId) {
     const course = await courseRepository.deleteById(courseId);
     if (!course) throw new AppError('Course with given id does not exist.', 404);
+    // Phase 8: deleted course invalidates both caches
+    await Promise.all([
+      cacheInvalidateKey(CATALOG_KEY),
+      cacheInvalidateKey(detailKey(courseId)),
+    ]);
   }
 
   async addSection(courseId, title) {
@@ -173,12 +193,11 @@ class CourseService {
         if (result) {
           fileData = { public_id: result.public_id, secure_url: result.secure_url };
         }
-        await fs.rm(`uploads/${file.filename}`);
+        if (file.filename) {
+          try { await fs.rm(`uploads/${file.filename}`); } catch {}
+        }
       } catch (error) {
         console.error("Cloudinary upload error:", error);
-        for (const f of await fs.readdir('uploads/')) {
-          await fs.unlink(path.join('uploads/', f));
-        }
         throw new AppError('File upload failed', 500);
       }
     }

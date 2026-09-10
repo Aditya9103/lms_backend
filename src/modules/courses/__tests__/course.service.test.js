@@ -5,12 +5,16 @@
  * Cloudinary is mocked — no real uploads during tests.
  */
 
-jest.mock('../../../core/utils/cloudinary.js', () => ({
-  uploadToCloudinary: jest.fn().mockResolvedValue({
-    public_id: 'test/lecture_video',
-    secure_url: 'https://res.cloudinary.com/test/video/upload/lecture.mp4',
-  }),
-  deleteFromCloudinary: jest.fn().mockResolvedValue({ result: 'ok' }),
+jest.mock('cloudinary', () => ({
+  v2: {
+    uploader: {
+      upload: jest.fn().mockResolvedValue({
+        public_id: 'test/lecture_video',
+        secure_url: 'https://res.cloudinary.com/test/video/upload/lecture.mp4',
+      }),
+      destroy: jest.fn().mockResolvedValue({ result: 'ok' }),
+    },
+  },
 }));
 
 import courseService from '../course.service.js';
@@ -52,11 +56,11 @@ describe('CourseService.createCourse', () => {
   });
 
   it('uploads thumbnail when file is provided', async () => {
-    const { uploadToCloudinary } = require('../../../core/utils/cloudinary.js');
+    const cloudinary = require('cloudinary');
     const mockFile = { path: '/tmp/test.jpg' };
 
     await courseService.createCourse(makeCourse(), mockFile);
-    expect(uploadToCloudinary).toHaveBeenCalled();
+    expect(cloudinary.v2.uploader.upload).toHaveBeenCalled();
   });
 });
 
@@ -98,11 +102,11 @@ describe('CourseService.getLecturesByCourseId', () => {
   it('returns the course with its lectures', async () => {
     const course = await Course.create({
       ...makeCourse(),
-      lectures: [{ title: 'Lecture 1', public_id: 'pub1', secure_url: 'url1' }],
+      lectures: [{ title: 'Lecture 1', lecture: { public_id: 'pub1', secure_url: 'https://res.cloudinary.com/test/video.mp4' } }],
     });
 
     const result = await courseService.getLecturesByCourseId(course._id);
-    expect(result.lectures).toHaveLength(1);
-    expect(result.lectures[0].title).toBe('Lecture 1');
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe('Lecture 1');
   });
 });

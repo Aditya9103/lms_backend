@@ -14,6 +14,10 @@ class UserRepository {
     return await User.findById(id).select('+refreshTokens.tokenHash');
   }
 
+  async findByIdWithPassword(id) {
+    return await User.findById(id).select('+password');
+  }
+
   async findByIdWithDashboardData(userId) {
     return await User.findById(userId)
       .populate('progress.courseId')

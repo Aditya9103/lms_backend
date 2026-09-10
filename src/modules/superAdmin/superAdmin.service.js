@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import superAdminRepository from './superAdmin.repository.js';
 import AppError from '../../core/utils/AppError.js';
 import { logActivity } from '../../core/utils/activityLogger.js';
+import { cacheAside } from '../../core/cache/cacheAside.js'; // Phase 8
 
 class SuperAdminService {
   async getAllUsersAndAdmins() {
@@ -105,19 +106,19 @@ class SuperAdminService {
     };
   }
 
+  // Phase 8: cache dashboard stats for 2 min — aggregation is expensive
   async getDashboardStats() {
-    const totalUsers = await superAdminRepository.countUsers({ role: 'USER' });
-    const totalAdmins = await superAdminRepository.countUsers({ role: 'ADMIN' });
-
-    const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000);
-    const newUsersToday = await superAdminRepository.countUsers({ createdAt: { $gt: yesterday }, role: 'USER' });
-
-    return {
-      totalUsers,
-      totalAdmins,
-      newUsersToday,
-      activeSessions: Math.floor(Math.random() * 50) + 10,
-    };
+    return await cacheAside(
+      'superadmin:dashboard:stats',
+      async () => {
+        const totalUsers   = await superAdminRepository.countUsers({ role: 'USER' });
+        const totalAdmins  = await superAdminRepository.countUsers({ role: 'ADMIN' });
+        const yesterday    = new Date(new Date().getTime() - 24 * 60 * 60 * 1000);
+        const newUsersToday = await superAdminRepository.countUsers({ createdAt: { $gt: yesterday }, role: 'USER' });
+        return { totalUsers, totalAdmins, newUsersToday, activeSessions: Math.floor(Math.random() * 50) + 10 };
+      },
+      { ttl: 120 } // 2-minute TTL for admin stats
+    );
   }
 }
 

@@ -101,23 +101,37 @@ class UserService {
     const user = await userRepository.findById(userId);
     if (!user) throw new AppError('User not found', 404);
 
+    if (!user.streak) {
+      user.streak = { count: 0, lastActivity: null };
+    }
+
     const now = new Date();
     const lastActivity = user.streak.lastActivity ? new Date(user.streak.lastActivity) : null;
 
     if (lastActivity) {
-        const diffTime = Math.abs(now - lastActivity);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const isSameDay =
+        now.getFullYear() === lastActivity.getFullYear() &&
+        now.getMonth() === lastActivity.getMonth() &&
+        now.getDate() === lastActivity.getDate();
 
-        if (diffDays === 1) {
-            user.streak.count += 1;
-            user.streak.lastActivity = now;
-        } else if (diffDays > 1) {
-            user.streak.count = 1;
-            user.streak.lastActivity = now;
+      if (!isSameDay) {
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        const isYesterday =
+          yesterday.getFullYear() === lastActivity.getFullYear() &&
+          yesterday.getMonth() === lastActivity.getMonth() &&
+          yesterday.getDate() === lastActivity.getDate();
+
+        if (isYesterday) {
+          user.streak.count = (user.streak.count || 0) + 1;
+        } else {
+          user.streak.count = 1;
         }
-    } else {
-        user.streak.count = 1;
         user.streak.lastActivity = now;
+      }
+    } else {
+      user.streak.count = 1;
+      user.streak.lastActivity = now;
     }
 
     await userRepository.save(user);
@@ -159,7 +173,7 @@ class UserService {
   }
 
   async changePassword(userId, oldPassword, newPassword) {
-    const user = await userRepository.findById(userId).select('+password');
+    const user = await userRepository.findByIdWithPassword(userId);
     if (!user) throw new AppError('Invalid user id or user does not exist', 400);
 
     const isPasswordValid = await user.comparePassword(oldPassword);

@@ -8,17 +8,19 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
-jest.mock('../../../core/utils/cloudinary.js', () => ({
-  uploadToCloudinary: jest.fn().mockResolvedValue({
-    public_id: 'test_public_id',
-    secure_url: 'https://res.cloudinary.com/test/image/upload/test.jpg',
-  }),
+jest.mock('cloudinary', () => ({
+  v2: {
+    uploader: {
+      upload: jest.fn().mockResolvedValue({
+        public_id: 'test_public_id',
+        secure_url: 'https://res.cloudinary.com/test/image/upload/test.jpg',
+      }),
+      destroy: jest.fn().mockResolvedValue({ result: 'ok' }),
+    },
+  },
 }));
 
-jest.mock('../../../core/utils/emailTransport.js', () => ({
-  sendEmail: jest.fn().mockResolvedValue(true),
-}));
+jest.mock('../../../core/utils/sendEmail.js', () => jest.fn().mockResolvedValue(true));
 
 jest.mock('google-auth-library', () => ({
   OAuth2Client: jest.fn().mockImplementation(() => ({
@@ -54,9 +56,7 @@ describe('UserService.loginUser', () => {
 
   it('throws INVALID_CREDENTIALS for wrong password', async () => {
     const data = makeUser();
-    // Create user with hashed password directly
-    const hashed = await bcrypt.hash(data.password, 10);
-    await User.create({ ...data, password: hashed, isVerified: true });
+    await User.create({ ...data, isVerified: true });
 
     await expect(
       userService.loginUser(data.email, 'WrongPassword!')
@@ -65,8 +65,7 @@ describe('UserService.loginUser', () => {
 
   it('returns token + user for valid credentials', async () => {
     const data = makeUser();
-    const hashed = await bcrypt.hash(data.password, 10);
-    await User.create({ ...data, password: hashed, isVerified: true, role: 'USER' });
+    await User.create({ ...data, isVerified: true, role: 'USER' });
 
     const result = await userService.loginUser(data.email, data.password);
 
@@ -77,8 +76,7 @@ describe('UserService.loginUser', () => {
 
   it('increments failedLoginAttempts on wrong password', async () => {
     const data = makeUser();
-    const hashed = await bcrypt.hash(data.password, 10);
-    await User.create({ ...data, password: hashed, isVerified: true });
+    await User.create({ ...data, isVerified: true });
 
     try {
       await userService.loginUser(data.email, 'wrong');
@@ -90,13 +88,11 @@ describe('UserService.loginUser', () => {
 
   it('throws ACCOUNT_LOCKED when account is locked', async () => {
     const data = makeUser();
-    const hashed = await bcrypt.hash(data.password, 10);
     const lockUntil = new Date(Date.now() + 15 * 60 * 1000);
     await User.create({
       ...data,
-      password: hashed,
       isVerified: true,
-      lockUntil,
+      lockoutUntil: lockUntil,
       failedLoginAttempts: 5,
     });
 
@@ -112,12 +108,11 @@ describe('UserService.updateStreak', () => {
     const user = await User.create({
       ...makeUser(),
       isVerified: true,
-      streak: 3,
-      lastActiveDate: yesterday,
+      streak: { count: 3, lastActivity: yesterday },
     });
 
     const result = await userService.updateStreak(user._id);
-    expect(result.streak).toBe(4);
+    expect(result.streak.count).toBe(4);
   });
 
   it('resets streak to 1 when last activity was 2+ days ago', async () => {
@@ -125,32 +120,29 @@ describe('UserService.updateStreak', () => {
     const user = await User.create({
       ...makeUser(),
       isVerified: true,
-      streak: 10,
-      lastActiveDate: twoDaysAgo,
+      streak: { count: 10, lastActivity: twoDaysAgo },
     });
 
     const result = await userService.updateStreak(user._id);
-    expect(result.streak).toBe(1);
+    expect(result.streak.count).toBe(1);
   });
 
   it('does not increment streak when called twice on the same day', async () => {
     const user = await User.create({
       ...makeUser(),
       isVerified: true,
-      streak: 5,
-      lastActiveDate: new Date(),
+      streak: { count: 5, lastActivity: new Date() },
     });
 
     const result = await userService.updateStreak(user._id);
-    expect(result.streak).toBe(5);
+    expect(result.streak.count).toBe(5);
   });
 });
 
 describe('UserService.changePassword', () => {
   it('throws if old password is incorrect', async () => {
     const data = makeUser();
-    const hashed = await bcrypt.hash(data.password, 10);
-    const user = await User.create({ ...data, password: hashed, isVerified: true });
+    const user = await User.create({ ...data, isVerified: true });
 
     await expect(
       userService.changePassword(user._id, 'wrong_old_password', 'NewPass123!')
@@ -159,12 +151,11 @@ describe('UserService.changePassword', () => {
 
   it('updates password hash when old password is correct', async () => {
     const data = makeUser();
-    const hashed = await bcrypt.hash(data.password, 10);
-    const user = await User.create({ ...data, password: hashed, isVerified: true });
+    const user = await User.create({ ...data, isVerified: true });
 
     await userService.changePassword(user._id, data.password, 'NewPass123!');
 
-    const updated = await User.findById(user._id);
+    const updated = await User.findById(user._id).select('+password');
     const newHashValid = await bcrypt.compare('NewPass123!', updated.password);
     expect(newHashValid).toBe(true);
   });
