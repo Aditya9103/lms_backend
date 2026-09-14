@@ -76,15 +76,22 @@ class UserService {
     // Shared lockout check (same counter for all login methods)
     checkLockout(user);
 
+    if (!user.isVerified) {
+      throw new AppError('Please verify your email via OTP before logging in', 403);
+    }
+
+    if (!user.password) {
+      if (user.authProvider === 'google') {
+        throw new AppError('This account was registered using Google. Please log in with Google.', 400);
+      }
+      throw new AppError('Password is not set for this account. Please use your original sign-in method.', 400);
+    }
+
     const passwordMatch = await user.comparePassword(password);
     if (!passwordMatch) {
       recordFailedAttempt(user);
       await userRepository.save(user);
       throw new AppError('Email or Password do not match or user does not exist', 401);
-    }
-
-    if (!user.isVerified) {
-      throw new AppError('Please verify your email via OTP before logging in', 403);
     }
 
     resetFailedAttempts(user);
@@ -457,7 +464,12 @@ class UserService {
   }
 
   async sendOtpEmail(email, type, otp) {
-    const subject = type === 'signup' ? 'Your Verification Code' : 'Your Login Verification Code';
+    let subject = 'Your Verification Code';
+    if (type === 'signup') subject = 'Your Verification Code';
+    else if (type === 'super_admin_login') subject = 'Your Super Admin Login Verification Code';
+    else if (type === 'admin_login') subject = 'Your Admin Login Verification Code';
+    else subject = 'Your Login Verification Code';
+
     const message = `
       <h2>${subject}</h2>
       <p>Your code is: <strong>${otp}</strong></p>
@@ -524,7 +536,8 @@ class UserService {
 
     if (expectedType === 'signup' && user.isVerified) throw new AppError('Already verified', 400);
     if (expectedType === 'login' && !user.isVerified) throw new AppError('Not verified', 404);
-    if (role === 'ADMIN' && user.role !== 'ADMIN') throw new AppError('Unauthorized access', 403);
+    if (role === 'ADMIN' && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access', 403);
+    if (role === 'SUPER_ADMIN' && user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access: Super Admin privileges required', 403);
 
     const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
 
@@ -554,7 +567,8 @@ class UserService {
   async otpLogin(email, role = 'USER') {
     const user = await userRepository.findByEmail(email);
     if (!user || !user.isVerified) throw new AppError('User not found or not verified', 404);
-    if (role === 'ADMIN' && user.role !== 'ADMIN') throw new AppError('Unauthorized access', 403);
+    if (role === 'ADMIN' && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access', 403);
+    if (role === 'SUPER_ADMIN' && user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access: Super Admin privileges required', 403);
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otp = crypto.createHash('sha256').update(otp).digest('hex');
@@ -565,8 +579,9 @@ class UserService {
     
     await userRepository.save(user);
 
+    const emailType = role === 'SUPER_ADMIN' ? 'super_admin_login' : (role === 'ADMIN' ? 'admin_login' : 'login');
     try {
-      await this.sendOtpEmail(email, 'login', otp);
+      await this.sendOtpEmail(email, emailType, otp);
     } catch (error) {
       user.otp = undefined;
       user.otpExpiresAt = undefined;
@@ -667,15 +682,19 @@ class UserService {
     // Shared lockout check
     checkLockout(user);
 
+    if (!user.isVerified) throw new AppError('Please verify your email before logging in', 403);
+    if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access', 403);
+
+    if (!user.password) {
+      throw new AppError('Password is not set for this account. Please use Admin OTP login.', 400);
+    }
+
     const passwordMatch = await user.comparePassword(password);
     if (!passwordMatch) {
       recordFailedAttempt(user);
       await userRepository.save(user);
       throw new AppError('Email or Password do not match', 401);
     }
-
-    if (!user.isVerified) throw new AppError('Please verify your email before logging in', 403);
-    if (user.role !== 'ADMIN') throw new AppError('Unauthorized access', 403);
 
     resetFailedAttempts(user);
     user.lastLoginDate = Date.now();
@@ -694,17 +713,29 @@ class UserService {
       throw new AppError('Invalid setup security code', 403);
     }
 
-    const userExists = await userRepository.findByEmail(email);
-    if (userExists) throw new AppError('Email already exists', 409);
+    const existingUser = await userRepository.findByEmail(email);
+    if (existingUser && existingUser.isVerified) {
+      throw new AppError('Email already registered and verified', 409);
+    }
 
-    const user = await userRepository.create({
-      fullName,
-      email,
-      password,
-      role: 'SUPER_ADMIN',
-      isVerified: true,
-      avatar: { public_id: email, secure_url: 'https://res.cloudinary.com/dnad8ehxf' }
-    });
+    let user;
+    if (existingUser) {
+      existingUser.fullName = fullName;
+      existingUser.password = password;
+      existingUser.role = 'SUPER_ADMIN';
+      existingUser.isVerified = true;
+      await userRepository.save(existingUser);
+      user = existingUser;
+    } else {
+      user = await userRepository.create({
+        fullName,
+        email,
+        password,
+        role: 'SUPER_ADMIN',
+        isVerified: true,
+        avatar: { public_id: email, secure_url: 'https://res.cloudinary.com/dnad8ehxf' }
+      });
+    }
 
     if (!user) throw new AppError('Failed to create super admin', 400);
 
@@ -715,6 +746,41 @@ class UserService {
 
     return { user, token, rawRefreshToken };
   }
+
+  async superAdminPasswordLogin(email, password) {
+    const user = await userRepository.findByEmailWithPassword(email);
+
+    if (!user) throw new AppError('Email or Password do not match', 401);
+
+    // Shared lockout check
+    checkLockout(user);
+
+    if (!user.isVerified) throw new AppError('Please verify your email before logging in', 403);
+    if (user.role !== 'SUPER_ADMIN') throw new AppError('Unauthorized access: Super Admin privileges required', 403);
+
+    if (!user.password) {
+      throw new AppError('Password is not set for this account. Please use Super Admin OTP login.', 400);
+    }
+
+    const passwordMatch = await user.comparePassword(password);
+    if (!passwordMatch) {
+      recordFailedAttempt(user);
+      await userRepository.save(user);
+      throw new AppError('Email or Password do not match', 401);
+    }
+
+    resetFailedAttempts(user);
+    user.lastLoginDate = Date.now();
+    const rawRefreshToken = user.generateRefreshToken('super-admin-password');
+    await userRepository.save(user);
+
+    const token = await user.generateJWTToken();
+    user.password = undefined;
+
+    logger.info(`[Auth] Super admin password login: ${user.email}`);
+    return { user, token, rawRefreshToken };
+  }
+
   async getAdminUserStats() {
     const allUsersCount = await userRepository.countUsers({});
     const subscribedUsersCount = await userRepository.countUsers({

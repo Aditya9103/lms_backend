@@ -48,8 +48,8 @@ const envSchema = z.object({
   // Redis (optional for local dev without Docker)
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
-  // Frontend
-  FRONTEND_URL: z.string().url().optional(),
+  // Frontend (single or comma-separated origins)
+  FRONTEND_URL: z.string().min(1).optional(),
 
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().optional(),

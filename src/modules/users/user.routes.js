@@ -24,6 +24,9 @@ import {
   adminVerifyLoginOtp,
   adminPasswordLogin,
   superAdminSignup,
+  superAdminOtpLogin,
+  superAdminVerifyLoginOtp,
+  superAdminPasswordLogin,
   gradeAssignment,
 } from './user.controller.js';
 import { isLoggedIn, authorizeRoles, refreshAccessToken } from '../../core/middlewares/auth.middleware.js';
@@ -96,6 +99,9 @@ router.post('/admin/password-login', authLimiter, validate(AdminPasswordLoginDto
 
 // ─── Super Admin Auth ─────────────────────────────────────────────────────────
 router.post('/super-admin/signup', authLimiter, validate(SuperAdminSignupDto), superAdminSignup);
+router.post('/super-admin/otp-login', authLimiter, validate(OtpRequestDto), superAdminOtpLogin);
+router.post('/super-admin/verify-login-otp', authLimiter, validate(OtpVerifyDto), superAdminVerifyLoginOtp);
+router.post('/super-admin/password-login', authLimiter, validate(LoginDto), superAdminPasswordLogin);
 
 // ─── OAuth & Session ──────────────────────────────────────────────────────────
 router.post('/google-auth', authLimiter, googleAuth);

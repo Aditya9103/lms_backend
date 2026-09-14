@@ -9,7 +9,9 @@
  */
 import request from 'supertest';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import app from '../../app.js';
+import config from '../config/env.js';
 import User from '../../modules/users/user.model.js';
 import ActivityLog from '../../modules/activityLog/activityLog.model.js';
 
@@ -260,6 +262,202 @@ describe('=== Phase 7: SuperAdmin Operations, System Audits & Multi-Tenant RBAC 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
       expect(res.body.error.message).toMatch(/invalid date/i);
+    });
+  });
+
+  // ─── 7.5 SuperAdmin Signup & Bootstrap ───────────────────────────────────────
+  describe('7.5 SuperAdmin Signup (POST /api/v1/user/super-admin/signup)', () => {
+    it('creates super admin using superAdminSecurityCode', async () => {
+      const email = `sa_${Date.now()}_${Math.random().toString(36).substring(7)}@example.com`;
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/signup')
+        .send({
+          fullName: 'Master Super Admin',
+          email,
+          password: 'Password123!',
+          superAdminSecurityCode: process.env.SUPER_ADMIN_SECURITY_CODE || 'super_secret_admin_code_2026',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('SUPER_ADMIN');
+    });
+
+    it('creates super admin using securityCode alias', async () => {
+      const email = `sa_alias_${Date.now()}_${Math.random().toString(36).substring(7)}@example.com`;
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/signup')
+        .send({
+          fullName: 'Alias Super Admin',
+          email,
+          password: 'Password123!',
+          securityCode: process.env.SUPER_ADMIN_SECURITY_CODE || 'super_secret_admin_code_2026',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('SUPER_ADMIN');
+    });
+
+    it('rejects signup without any security code with 400 validation error', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/signup')
+        .send({
+          fullName: 'Missing Code Admin',
+          email: 'missingcode@example.com',
+          password: 'Password123!',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects signup with invalid security code with 403 Forbidden', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/signup')
+        .send({
+          fullName: 'Wrong Code Admin',
+          email: 'wrongcode@example.com',
+          password: 'Password123!',
+          superAdminSecurityCode: 'wrong_secret_code',
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/invalid setup security code/i);
+    });
+  });
+
+  describe('7.6 SuperAdmin Password & OTP Login Flow', () => {
+    let superAdminEmail;
+    const superAdminPassword = 'SuperSecretPassword123!';
+
+    beforeEach(async () => {
+      superAdminEmail = `superlogin_${Date.now()}_${Math.random().toString(36).substring(7)}@example.com`;
+      await request(app)
+        .post('/api/v1/user/super-admin/signup')
+        .send({
+          fullName: 'Super Login Admin',
+          email: superAdminEmail,
+          password: superAdminPassword,
+          superAdminSecurityCode: config.SUPER_ADMIN_SECURITY_CODE,
+        });
+    });
+
+    it('logs in super admin with correct password', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/password-login')
+        .send({
+          email: superAdminEmail,
+          password: superAdminPassword,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('SUPER_ADMIN');
+      expect(res.body.data.token).toBeDefined();
+    });
+
+    it('rejects password login with incorrect password with 401', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/password-login')
+        .send({
+          email: superAdminEmail,
+          password: 'IncorrectPassword999!',
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('rejects password login for non-superadmin user with 403', async () => {
+      const regularEmail = `regular_${Date.now()}@example.com`;
+      await User.create({
+        fullName: 'Regular User',
+        email: regularEmail,
+        password: 'UserPassword123!',
+        role: 'USER',
+        isVerified: true,
+      });
+
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/password-login')
+        .send({
+          email: regularEmail,
+          password: 'UserPassword123!',
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/Super Admin privileges required/i);
+    });
+
+    it('requests OTP login for super admin', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/otp-login')
+        .send({
+          email: superAdminEmail,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('rejects OTP login request for standard USER with 403', async () => {
+      const userOnlyEmail = `useronly_${Date.now()}@example.com`;
+      await User.create({
+        fullName: 'User Only',
+        email: userOnlyEmail,
+        role: 'USER',
+        isVerified: true,
+      });
+
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/otp-login')
+        .send({
+          email: userOnlyEmail,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toMatch(/Super Admin privileges required/i);
+    });
+
+    it('verifies valid OTP for super admin and returns session token', async () => {
+      // Find the user to get OTP hash or set a known OTP
+      const crypto = await import('crypto');
+      const testOtp = '654321';
+      const hashedOtp = crypto.createHash('sha256').update(testOtp).digest('hex');
+
+      await User.updateOne(
+        { email: superAdminEmail },
+        { otp: hashedOtp, otpExpiresAt: Date.now() + 600000, otpType: 'login' }
+      );
+
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/verify-login-otp')
+        .send({
+          email: superAdminEmail,
+          otp: testOtp,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('SUPER_ADMIN');
+      expect(res.body.data.token).toBeDefined();
+    });
+
+    it('rejects verification with wrong OTP with 400', async () => {
+      const res = await request(app)
+        .post('/api/v1/user/super-admin/verify-login-otp')
+        .send({
+          email: superAdminEmail,
+          otp: '000000',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
     });
   });
 });

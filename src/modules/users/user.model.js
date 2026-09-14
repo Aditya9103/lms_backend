@@ -249,6 +249,9 @@ userSchema.pre('save', async function (next) {
 userSchema.methods = {
   // method which will help us compare plain password with hashed password and returns true or false
   comparePassword: async function (plainPassword) {
+    if (!this.password || typeof this.password !== 'string' || !plainPassword) {
+      return false;
+    }
     return await bcrypt.compare(plainPassword, this.password);
   },
 

@@ -121,9 +121,18 @@ export const AdminPasswordLoginDto = z.object({
 });
 
 /** POST /user/super-admin/signup */
-export const SuperAdminSignupDto = z.object({
-  fullName: fullNameSchema,
-  email: emailSchema,
-  password: passwordSchema,
-  securityCode: z.string().min(1, 'Security code is required'),
-});
+export const SuperAdminSignupDto = z
+  .object({
+    fullName: fullNameSchema,
+    email: emailSchema,
+    password: passwordSchema,
+    superAdminSecurityCode: z.string().optional(),
+    securityCode: z.string().optional(),
+  })
+  .refine(
+    (data) => Boolean(data.superAdminSecurityCode || data.securityCode),
+    {
+      message: 'Super Admin Security Code is required',
+      path: ['superAdminSecurityCode'],
+    }
+  );

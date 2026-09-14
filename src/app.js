@@ -44,19 +44,25 @@ app.use(metricsRouter);
 app.use(helmetMiddleware);
 
 // ─── 3. CORS ──────────────────────────────────────────────────────────────────
+const configuredOrigins = (config.FRONTEND_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
 const allowedOrigins = [
-  config.FRONTEND_URL,
-  config.FRONTEND_URL?.replace(/\/$/, ''),
+  ...configuredOrigins,
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'http://localhost:5174'
-].filter(Boolean);
+  'http://localhost:5174',
+];
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, Postman, curl)
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (!origin) return callback(null, true);
+      const normalized = origin.replace(/\/$/, '');
+      if (allowedOrigins.includes(normalized)) return callback(null, true);
       logger.warn(`[CORS] Blocked request from: ${origin}`);
       callback(new Error(`Origin ${origin} not allowed by CORS`));
     },

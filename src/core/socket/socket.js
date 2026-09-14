@@ -29,14 +29,25 @@ let io = null;
  * @returns {import('socket.io').Server}
  */
 export const initSocket = async (httpServer, redisClient) => {
+  const configuredOrigins = (config.FRONTEND_URL || '')
+    .split(',')
+    .map((url) => url.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  const allowedOrigins = [
+    ...configuredOrigins,
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ];
+
   io = new Server(httpServer, {
     cors: {
-      origin: [
-        config.FRONTEND_URL,
-        config.FRONTEND_URL?.replace(/\/$/, ''),
-        'http://localhost:5173',
-        'http://localhost:5174',
-      ].filter(Boolean),
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        const normalized = origin.replace(/\/$/, '');
+        if (allowedOrigins.includes(normalized)) return callback(null, true);
+        callback(new Error(`Origin ${origin} not allowed by Socket.IO CORS`));
+      },
       credentials: true,
     },
     // Prefer WebSocket; fall back to polling

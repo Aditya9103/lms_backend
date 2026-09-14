@@ -164,9 +164,25 @@ export const adminPasswordLogin = asyncHandler(async (req, res) => {
 // ── Super Admin ───────────────────────────────────────────────────────────────
 
 export const superAdminSignup = asyncHandler(async (req, res) => {
-  const { fullName, email, password, superAdminSecurityCode } = req.body;
-  const result = await userService.superAdminSignup(fullName, email, password, superAdminSecurityCode);
+  const { fullName, email, password, superAdminSecurityCode, securityCode } = req.body;
+  const code = superAdminSecurityCode || securityCode;
+  const result = await userService.superAdminSignup(fullName, email, password, code);
   return sendAuthResponse(res, result, 201);
+});
+
+export const superAdminOtpLogin = asyncHandler(async (req, res) => {
+  await userService.otpLogin(req.body.email, 'SUPER_ADMIN');
+  return sendSuccess(res, null, 200, 'OTP sent to your email successfully');
+});
+
+export const superAdminVerifyLoginOtp = asyncHandler(async (req, res) => {
+  const result = await userService.verifyOtp(req.body.email, req.body.otp, 'login', 'SUPER_ADMIN');
+  return sendAuthResponse(res, result);
+});
+
+export const superAdminPasswordLogin = asyncHandler(async (req, res) => {
+  const result = await userService.superAdminPasswordLogin(req.body.email, req.body.password);
+  return sendAuthResponse(res, result);
 });
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
